@@ -35,6 +35,7 @@ Route::middleware('auth')->group(function (): void {
     Route::get('/deudas', [DeudaController::class, 'index'])->name('app.deudas.index');
     Route::get('/deudas/crear', [DeudaController::class, 'create'])->name('app.deudas.create');
     Route::post('/deudas', [DeudaController::class, 'store'])->name('app.deudas.store');
+    Route::post('/deudas/pagos', [DeudaController::class, 'pagar'])->name('app.deudas.pagos.store');
     Route::get('/tarjetas', [TarjetaController::class, 'index'])->name('app.tarjetas.index');
     Route::get('/tarjetas/crear', [TarjetaController::class, 'create'])->name('app.tarjetas.create');
     Route::post('/tarjetas', [TarjetaController::class, 'store'])->name('app.tarjetas.store');
@@ -42,10 +43,12 @@ Route::middleware('auth')->group(function (): void {
     Route::post('/tarjetas/pagos', [TarjetaController::class, 'pagar'])->name('app.tarjetas.pagos.store');
     Route::get('/pagos', [PagoController::class, 'index'])->name('app.pagos.index');
     Route::post('/pagos', [PagoController::class, 'store'])->name('app.pagos.store');
+    Route::post('/transferencias', [PagoController::class, 'transferir'])->name('app.transferencias.store');
     Route::get('/presupuestos', [PresupuestoController::class, 'index'])->name('app.presupuestos.index');
     Route::post('/presupuestos', [PresupuestoController::class, 'store'])->name('app.presupuestos.store');
     Route::get('/metas', [MetaAhorroController::class, 'index'])->name('app.metas.index');
     Route::post('/metas', [MetaAhorroController::class, 'store'])->name('app.metas.store');
+    Route::post('/metas/aportes', [MetaAhorroController::class, 'aportar'])->name('app.metas.aportes.store');
     Route::get('/calendario', CalendarioController::class)->name('app.calendario');
     Route::get('/proyecciones', ProyeccionController::class)->name('app.proyecciones');
     Route::post('/logout', [AuthController::class, 'logout'])->name('auth.logout');

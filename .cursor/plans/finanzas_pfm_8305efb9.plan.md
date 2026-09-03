@@ -12,20 +12,33 @@ todos:
     content: Préstamos (francés + abono extra) y tarjetas (cupo, compras, cuotas, pagos)
     status: done
   - id: planning
-    content: Presupuestos, metas de ahorro, recurrencias y proyección de flujo
+    content: Presupuestos, metas de ahorro (aportes al libro), recurrencias y proyección de flujo
     status: done
   - id: situation-ui
-    content: Auth multi-usuario, dashboard de las 13 preguntas, pantallas Blade de núcleo, importación CSV
+    content: Auth multi-usuario, dashboard, pantallas Blade de núcleo; importación CSV pendiente
     status: in_progress
   - id: qa-security
-    content: PHPUnit de dominio + aislamiento; auditoría y policies
-    status: pending
+    content: PHPUnit de dominio + aislamiento; auditoría SeguridadService y policies
+    status: done
+  - id: ledger-hardening
+    content: Reverso de asientos, unique origen, metas ledger-backed, transferencias UI, deps limpias
+    status: done
 isProject: false
 ---
 
 # Personal Finance Manager (`finanzas`)
 
-## Qué se reutiliza de ambientes
+## Decisiones senior (amplían el plan original)
+
+| Tema | Decisión |
+|------|----------|
+| Corrección contable | Solo `revertir()`; origen del reverso = `reverso:{origen}`; auditado en `seguridad_logs` |
+| Unicidad de asiento | Unique DB `(usuario_id, origen_tipo, origen_id)` + guard en servicio |
+| Metas | Avance = Σ `aporte_meta` (transferencia a bolsillo). Sin “monto actual” editable |
+| Abono extra préstamo | Pago ≥ cuota; exceso reduce **plazo**, mantiene cuota |
+| Intereses en situación | Leídos de movimientos `5200` (libro), no del calendario |
+| Dependencias | Sin Sanctum/TTS/FPDF/DomPDF hasta que haya reportes reales |
+| Tests | PHPUnit con SQLite `:memory:`; dominio + IDOR obligatorios |
 
 Proyecto de referencia: [`/Users/angelpenaloza/Documents/GitHub/ambientes`](/Users/angelpenaloza/Documents/GitHub/ambientes) (PedNia). Guía de agentes: [`AGENTS.md`](/Users/angelpenaloza/Documents/GitHub/ambientes/AGENTS.md).
 
@@ -35,12 +48,13 @@ Proyecto de referencia: [`/Users/angelpenaloza/Documents/GitHub/ambientes`](/Use
 - UI **Blade + Bootstrap 5 + jQuery** (no SPA, no Vue/React/Livewire)
 - Lógica de negocio en `app/Services` (controladores delgados)
 - JS por pantalla en `public/assets/js`, layouts Blade, rutas nombradas
-- Auth por **sesión** (no Sanctum para la UI)
-- Auditoría estilo [`SeguridadService`](/Users/angelpenaloza/Documents/GitHub/ambientes/app/Services/SeguridadService.php)
-- PDF con `barryvdh/laravel-dompdf` cuando haya reportes
-- PHPUnit (`tests/Unit` + `tests/Feature`)
+- Auth por **sesión** (Sanctum eliminado del producto hasta API real)
+- Auditoría vía `App\Services\SeguridadService` → `seguridad_logs`
+- PDF solo cuando existan reportes (paquete no instalado hoy)
+- PHPUnit (`tests/Unit` + `tests/Feature`) con SQLite en memoria
 - Idioma de código y UI: **español**
 - Validación con Form Requests en flujos nuevos
+- Guía local: [`AGENTS.md`](../../AGENTS.md)
 
 **No se copia:** kiosco/PIN, sync entre nodos, multi-institución, roles admin/docente/superAdmin escolares, `AMBIENTE_SLUG`.
 

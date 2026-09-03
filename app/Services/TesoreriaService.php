@@ -21,7 +21,8 @@ class TesoreriaService
         ?int $categoriaId = null,
         ?int $cuentaDestinoId = null,
         ?string $descripcion = null,
-        ?string $tipoGasto = null
+        ?string $tipoGasto = null,
+        ?int $metaAhorroId = null
     ): HechoTesoreria {
         if ($montoCentavos <= 0) {
             throw new \InvalidArgumentException('El monto debe ser positivo.');
@@ -30,13 +31,17 @@ class TesoreriaService
             && ($cuentaLiquidaId === null || $categoriaId === null)) {
             throw new \InvalidArgumentException('Ingresos y gastos requieren cuenta y categoría.');
         }
-        if ($tipo === TipoHechoTesoreria::Transferencia && ($cuentaLiquidaId === null || $cuentaDestinoId === null)) {
-            throw new \InvalidArgumentException('Una transferencia requiere cuenta de origen y destino.');
+        if (in_array($tipo, [TipoHechoTesoreria::Transferencia, TipoHechoTesoreria::AporteMeta], true)
+            && ($cuentaLiquidaId === null || $cuentaDestinoId === null)) {
+            throw new \InvalidArgumentException('Transferencias y aportes requieren cuenta de origen y destino.');
+        }
+        if ($tipo === TipoHechoTesoreria::AporteMeta && $metaAhorroId === null) {
+            throw new \InvalidArgumentException('El aporte requiere una meta de ahorro.');
         }
 
         return DB::transaction(function () use (
             $usuarioId, $tipo, $fecha, $montoCentavos, $cuentaLiquidaId,
-            $categoriaId, $cuentaDestinoId, $descripcion, $tipoGasto
+            $categoriaId, $cuentaDestinoId, $descripcion, $tipoGasto, $metaAhorroId
         ): HechoTesoreria {
             $cuenta = $cuentaLiquidaId
                 ? CuentaLiquida::withoutGlobalScopes()->where('usuario_id', $usuarioId)->where('activa', true)->findOrFail($cuentaLiquidaId)
@@ -60,20 +65,33 @@ class TesoreriaService
                     ['cuenta_contable_id' => $categoria?->cuenta_contable_id, 'debe_centavos' => $montoCentavos, 'haber_centavos' => 0],
                     ['cuenta_contable_id' => $cuenta?->cuenta_contable_id, 'debe_centavos' => 0, 'haber_centavos' => $montoCentavos],
                 ],
-                TipoHechoTesoreria::Transferencia => $this->movimientosTransferencia($usuarioId, $cuenta, $cuentaDestinoId, $montoCentavos),
+                TipoHechoTesoreria::Transferencia, TipoHechoTesoreria::AporteMeta => $this->movimientosTransferencia($usuarioId, $cuenta, $cuentaDestinoId, $montoCentavos),
                 TipoHechoTesoreria::Apertura => [
                     ['cuenta_contable_id' => $cuenta?->cuenta_contable_id, 'debe_centavos' => $montoCentavos, 'haber_centavos' => 0],
                     ['cuenta_contable_id' => $this->cuentaPatrimonio($usuarioId), 'debe_centavos' => 0, 'haber_centavos' => $montoCentavos],
                 ],
-                default => throw new \InvalidArgumentException('Tipo de tesorería no soportado.'),
             };
 
             $hecho = HechoTesoreria::withoutGlobalScopes()->create([
-                'usuario_id' => $usuarioId, 'tipo' => $tipo, 'tipo_gasto' => $tipoGasto, 'cuenta_liquida_id' => $cuentaLiquidaId,
-                'cuenta_destino_id' => $cuentaDestinoId, 'categoria_id' => $categoriaId,
-                'fecha' => $fecha, 'monto_centavos' => $montoCentavos, 'descripcion' => $descripcion,
+                'usuario_id' => $usuarioId,
+                'tipo' => $tipo,
+                'tipo_gasto' => $tipoGasto,
+                'cuenta_liquida_id' => $cuentaLiquidaId,
+                'cuenta_destino_id' => $cuentaDestinoId,
+                'categoria_id' => $categoriaId,
+                'meta_ahorro_id' => $metaAhorroId,
+                'fecha' => $fecha,
+                'monto_centavos' => $montoCentavos,
+                'descripcion' => $descripcion,
             ]);
-            $this->contabilizacion->postear($usuarioId, $fecha, $descripcion ?? $tipo->value, HechoTesoreria::class, $hecho->id, $movimientos);
+            $this->contabilizacion->postear(
+                $usuarioId,
+                $fecha,
+                $descripcion ?? $tipo->value,
+                HechoTesoreria::class,
+                $hecho->id,
+                $movimientos
+            );
 
             return $hecho;
         });
@@ -83,18 +101,30 @@ class TesoreriaService
     {
         $destino = CuentaLiquida::withoutGlobalScopes()
             ->where('usuario_id', $usuarioId)->where('activa', true)->findOrFail($destinoId);
-        if ($origen?->id === $destino->id) {
+        if ($origen === null) {
+            throw new \InvalidArgumentException('La cuenta de origen es obligatoria.');
+        }
+        if ($origen->id === $destino->id) {
             throw new \InvalidArgumentException('El origen y destino deben ser diferentes.');
         }
+        if ($origen->saldoCentavos() < $monto) {
+            throw new \InvalidArgumentException('Saldo insuficiente en la cuenta de origen.');
+        }
+
         return [
             ['cuenta_contable_id' => $destino->cuenta_contable_id, 'debe_centavos' => $monto, 'haber_centavos' => 0],
-            ['cuenta_contable_id' => $origen?->cuenta_contable_id, 'debe_centavos' => 0, 'haber_centavos' => $monto],
+            ['cuenta_contable_id' => $origen->cuenta_contable_id, 'debe_centavos' => 0, 'haber_centavos' => $monto],
         ];
     }
 
     private function cuentaPatrimonio(int $usuarioId): int
     {
-        return (int) \App\Models\CuentaContable::withoutGlobalScopes()
+        $id = \App\Models\CuentaContable::withoutGlobalScopes()
             ->where('usuario_id', $usuarioId)->where('codigo', '3100')->value('id');
+        if (! $id) {
+            throw new \InvalidArgumentException('El usuario no tiene cuenta de patrimonio.');
+        }
+
+        return (int) $id;
     }
 }

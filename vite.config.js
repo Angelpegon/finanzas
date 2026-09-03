@@ -13,7 +13,8 @@ export default defineConfig({
         port: 5173,
         strictPort: true,
         hmr: {
-            host: process.env.VITE_DEV_HOST || '192.168.1.101',
+            // localhost por defecto; usa VITE_DEV_HOST solo para prueba en LAN/móvil
+            host: process.env.VITE_DEV_HOST || 'localhost',
             port: 5173,
         },
     },

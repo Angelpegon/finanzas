@@ -8,9 +8,12 @@ use App\Models\CuentaLiquida;
 use App\Models\CuotaPrestamo;
 use App\Models\CuotaTarjeta;
 use App\Models\HechoTesoreria;
+use App\Models\MovimientoLibro;
 use App\Models\Pago;
+use App\Models\Prestamo;
 use App\Models\Presupuesto;
 use App\Models\Recurrencia;
+use App\Models\TarjetaCredito;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
@@ -89,7 +92,9 @@ class SituacionFinancieraService
             'presupuestos_alertas' => $presupuestosAlertas,
             'evolucion_deuda' => $this->evolucionPasivo($usuarioId, $fecha),
             'evolucion_patrimonial' => $this->evolucionPatrimonial($usuarioId, $fecha),
-            'intereses_mes_centavos' => (int) CuotaPrestamo::withoutGlobalScopes()->where('usuario_id', $usuarioId)->whereBetween('fecha_vencimiento', [$inicio, $fin])->sum('interes_centavos') + (int) CuotaTarjeta::withoutGlobalScopes()->where('usuario_id', $usuarioId)->whereBetween('fecha_vencimiento', [$inicio, $fin])->sum('interes_centavos'),
+            'intereses_mes_centavos' => $this->interesesPosteadosMes($usuarioId, $inicio, $fin),
+            'deuda_mayor_costo' => $this->deudaMayorCosto($usuarioId),
+            'cuando_termino' => $this->cuandoTermino($usuarioId),
             'puede_asumir_deuda' => $proyeccion['capacidad_ahorro'] > 0,
             'capacidad_ahorro_centavos' => $proyeccion['capacidad_ahorro'],
             'proyeccion' => $proyeccion,
@@ -135,5 +140,80 @@ class SituacionFinancieraService
             $haber = (int) (clone $movimientos)->sum('movimientos.haber_centavos');
             return in_array($naturaleza, [NaturalezaCuenta::Activo, NaturalezaCuenta::Gasto], true) ? $debe - $haber : $haber - $debe;
         });
+    }
+
+    /** Intereses reales = movimientos posteados a 5200 en el periodo (libro, no calendario). */
+    private function interesesPosteadosMes(int $usuarioId, Carbon $inicio, Carbon $fin): int
+    {
+        $cuentaId = CuentaContable::withoutGlobalScopes()
+            ->where('usuario_id', $usuarioId)->where('codigo', '5200')->value('id');
+        if (! $cuentaId) {
+            return 0;
+        }
+
+        return (int) MovimientoLibro::withoutGlobalScopes()
+            ->where('usuario_id', $usuarioId)
+            ->where('cuenta_contable_id', $cuentaId)
+            ->whereHas('asiento', fn ($q) => $q->whereBetween('fecha', [$inicio->toDateString(), $fin->toDateString()]))
+            ->sum('debe_centavos');
+    }
+
+    private function deudaMayorCosto(int $usuarioId): ?array
+    {
+        $candidatos = collect();
+        foreach (Prestamo::withoutGlobalScopes()->where('usuario_id', $usuarioId)->where('estado', '!=', 'cancelada')->get() as $p) {
+            $interesRestante = (int) $p->cuotas()->where('pagada', false)->sum('interes_centavos');
+            if ($interesRestante <= 0 && (float) $p->ea_porcentaje <= 0) {
+                continue;
+            }
+            $candidatos->push([
+                'tipo' => 'prestamo',
+                'id' => $p->id,
+                'nombre' => $p->nombre,
+                'ea_porcentaje' => (float) $p->ea_porcentaje,
+                'interes_restante_centavos' => $interesRestante,
+            ]);
+        }
+        foreach (TarjetaCredito::withoutGlobalScopes()->where('usuario_id', $usuarioId)->where('activa', true)->get() as $t) {
+            $interesRestante = (int) CuotaTarjeta::withoutGlobalScopes()
+                ->where('tarjeta_credito_id', $t->id)->where('pagada', false)->sum('interes_centavos');
+            $candidatos->push([
+                'tipo' => 'tarjeta',
+                'id' => $t->id,
+                'nombre' => $t->nombre,
+                'ea_porcentaje' => (float) $t->ea_porcentaje,
+                'interes_restante_centavos' => $interesRestante,
+            ]);
+        }
+
+        return $candidatos->sort(function (array $a, array $b): int {
+            return [$b['ea_porcentaje'], $b['interes_restante_centavos']]
+                <=> [$a['ea_porcentaje'], $a['interes_restante_centavos']];
+        })->values()->first();
+    }
+
+    private function cuandoTermino(int $usuarioId): array
+    {
+        $items = [];
+        foreach (Prestamo::withoutGlobalScopes()->where('usuario_id', $usuarioId)->get() as $p) {
+            $ultima = $p->cuotas()->where('pagada', false)->orderByDesc('fecha_vencimiento')->first();
+            $items[] = [
+                'tipo' => 'prestamo',
+                'nombre' => $p->nombre,
+                'fecha' => $ultima?->fecha_vencimiento?->toDateString() ?? $p->fecha_vencimiento?->toDateString(),
+            ];
+        }
+        foreach (TarjetaCredito::withoutGlobalScopes()->where('usuario_id', $usuarioId)->where('activa', true)->get() as $t) {
+            $ultima = CuotaTarjeta::withoutGlobalScopes()
+                ->where('tarjeta_credito_id', $t->id)->where('pagada', false)
+                ->orderByDesc('fecha_vencimiento')->first();
+            $items[] = [
+                'tipo' => 'tarjeta',
+                'nombre' => $t->nombre,
+                'fecha' => $ultima?->fecha_vencimiento?->toDateString(),
+            ];
+        }
+
+        return collect($items)->filter(fn ($i) => $i['fecha'])->sortBy('fecha')->values()->all();
     }
 }

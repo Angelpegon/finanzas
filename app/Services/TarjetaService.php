@@ -100,10 +100,18 @@ class TarjetaService
                 'descripcion' => 'Pago de cuota '.$cuota->numero,
             ]);
             $cuota->forceFill(['pagada' => true, 'pagada_en' => now()])->save();
-            $this->contabilizacion->postear($usuarioId, $fecha, 'Pago de tarjeta '.$tarjeta->nombre, Pago::class, $pago->id, [
-                ['cuenta_contable_id' => $tarjeta->cuenta_contable_id, 'debe_centavos' => $montoCentavos, 'haber_centavos' => 0],
+            $capital = (int) $cuota->capital_centavos;
+            $interes = (int) $cuota->interes_centavos;
+            $movimientos = [
+                ['cuenta_contable_id' => $tarjeta->cuenta_contable_id, 'debe_centavos' => $capital, 'haber_centavos' => 0],
                 ['cuenta_contable_id' => $liquida->cuenta_contable_id, 'debe_centavos' => 0, 'haber_centavos' => $montoCentavos],
-            ]);
+            ];
+            if ($interes > 0) {
+                $gastoId = CuentaContable::withoutGlobalScopes()
+                    ->where('usuario_id', $usuarioId)->where('codigo', '5200')->firstOrFail()->id;
+                $movimientos[] = ['cuenta_contable_id' => $gastoId, 'debe_centavos' => $interes, 'haber_centavos' => 0];
+            }
+            $this->contabilizacion->postear($usuarioId, $fecha, 'Pago de tarjeta '.$tarjeta->nombre, Pago::class, $pago->id, $movimientos);
             return $pago;
         });
     }

@@ -5,7 +5,7 @@ namespace App\Http\Requests;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
-class MetaAhorroRequest extends FormRequest
+class AporteMetaRequest extends FormRequest
 {
     public function authorize(): bool
     {
@@ -15,17 +15,19 @@ class MetaAhorroRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'nombre' => ['required', 'string', 'max:120'],
-            'objetivo' => ['required', 'numeric', 'gt:0'],
-            'fecha_objetivo' => ['nullable', 'date'],
-            'aporte_mensual' => ['nullable', 'numeric', 'gte:0'],
+            'meta_ahorro_id' => [
+                'required',
+                'integer',
+                Rule::exists('metas_ahorro', 'id')->where('usuario_id', $this->user()->id),
+            ],
             'cuenta_liquida_id' => [
                 'required',
                 'integer',
                 Rule::exists('cuentas_liquidas', 'id')->where('usuario_id', $this->user()->id)->where('activa', true),
             ],
-            'prioridad' => ['required', Rule::in(['alta', 'media', 'baja'])],
-            'estado' => ['required', Rule::in(['activa', 'cumplida', 'pausada', 'cancelada'])],
+            'monto' => ['required', 'numeric', 'gt:0'],
+            'fecha' => ['required', 'date'],
+            'descripcion' => ['nullable', 'string', 'max:255'],
         ];
     }
 }

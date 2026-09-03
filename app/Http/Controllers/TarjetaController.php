@@ -34,6 +34,7 @@ class TarjetaController extends Controller
 
     public function store(TarjetaRequest $request, TarjetaService $service): RedirectResponse
     {
+        $this->authorize('create', TarjetaCredito::class);
         $d = $request->validated();
         $service->crear(Auth::id(), $d['nombre'], Dinero::pesosACentavos($d['cupo']), (int) $d['dia_corte'], (int) $d['dia_pago'], (float) $d['tasa']);
         $tarjeta = TarjetaCredito::withoutGlobalScopes()->where('usuario_id', Auth::id())->latest('id')->firstOrFail();
@@ -45,7 +46,13 @@ class TarjetaController extends Controller
     public function compra(CompraTarjetaRequest $request, TarjetaService $service): RedirectResponse
     {
         $d = $request->validated();
-        $service->registrarCompra(Auth::id(), (int) $d['tarjeta_credito_id'], Dinero::pesosACentavos($d['monto']), (int) $d['cuotas'], $d['fecha'], (int) $d['categoria_id'], $d['descripcion'], (float) ($d['interes'] ?? 0));
+        $tarjeta = TarjetaCredito::findOrFail($d['tarjeta_credito_id']);
+        $this->authorize('update', $tarjeta);
+        try {
+            $service->registrarCompra(Auth::id(), (int) $d['tarjeta_credito_id'], Dinero::pesosACentavos($d['monto']), (int) $d['cuotas'], $d['fecha'], (int) $d['categoria_id'], $d['descripcion'], (float) ($d['interes'] ?? 0));
+        } catch (\InvalidArgumentException $e) {
+            return back()->withErrors(['monto' => $e->getMessage()])->withInput();
+        }
 
         return redirect()->route('app.tarjetas.index')->with('status', 'Compra financiada registrada con su cronograma.');
     }
@@ -53,7 +60,13 @@ class TarjetaController extends Controller
     public function pagar(PagoTarjetaRequest $request, TarjetaService $service): RedirectResponse
     {
         $d = $request->validated();
-        $service->registrarPago(Auth::id(), (int) $d['tarjeta_credito_id'], (int) $d['cuenta_liquida_id'], (int) $d['cuota_tarjeta_id'], $d['fecha']);
+        $tarjeta = TarjetaCredito::findOrFail($d['tarjeta_credito_id']);
+        $this->authorize('update', $tarjeta);
+        try {
+            $service->registrarPago(Auth::id(), (int) $d['tarjeta_credito_id'], (int) $d['cuenta_liquida_id'], (int) $d['cuota_tarjeta_id'], $d['fecha']);
+        } catch (\InvalidArgumentException $e) {
+            return back()->withErrors(['cuenta_liquida_id' => $e->getMessage()]);
+        }
 
         return redirect()->route('app.tarjetas.index')->with('status', 'Pago de cuota registrado.');
     }

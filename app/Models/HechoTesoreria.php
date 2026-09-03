@@ -25,4 +25,14 @@ class HechoTesoreria extends Model
     {
         return $this->belongsTo(MetaAhorro::class, 'meta_ahorro_id');
     }
+
+    public function cuentaLiquida(): \Illuminate\Database\Eloquent\Relations\BelongsTo
+    {
+        return $this->belongsTo(CuentaLiquida::class, 'cuenta_liquida_id');
+    }
+
+    public function cuentaDestino(): \Illuminate\Database\Eloquent\Relations\BelongsTo
+    {
+        return $this->belongsTo(CuentaLiquida::class, 'cuenta_destino_id');
+    }
 }

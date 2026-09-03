@@ -25,7 +25,9 @@ class CuentaLiquidaController extends Controller
 
     public function store(CuentaLiquidaRequest $request, CuentaLiquidaService $service): RedirectResponse
     {
+        $this->authorize('create', CuentaLiquida::class);
         $service->crear(Auth::id(), $request->validated());
+
         return redirect()->route('app.cuentas.index')->with('status', 'Cuenta registrada correctamente.');
     }
 

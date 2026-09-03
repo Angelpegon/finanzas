@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Http\Requests\ObligacionRequest;
+use App\Http\Requests\PagoPrestamoRequest;
 use App\Models\Prestamo;
 use App\Models\TarjetaCredito;
 use App\Models\CuentaLiquida;
@@ -29,15 +30,40 @@ class DeudaController extends Controller
 
     public function store(ObligacionRequest $request, PrestamoService $service): RedirectResponse
     {
+        $this->authorize('create', Prestamo::class);
         $d = $request->validated();
-        $service->crear(
-            Auth::id(), $d['nombre'], Dinero::pesosACentavos($d['monto_inicial']),
-            (float) $d['tasa_interes'], (int) $d['numero_cuotas'], $d['fecha_inicio'],
-            (int) date('d', strtotime($d['fecha_vencimiento'] ?: $d['fecha_inicio'])),
-            (int) $d['cuenta_liquida_id'], $d['entidad'] ?? null, $d['tipo_obligacion'],
-            $d['tipo_tasa'], $d['periodicidad'], $d['fecha_vencimiento'] ?? null
-            ,$d['metodo_amortizacion'], Dinero::pesosACentavos($d['seguro'] ?? 0), Dinero::pesosACentavos($d['otros_cargos'] ?? 0)
-        );
+        try {
+            $service->crear(
+                Auth::id(), $d['nombre'], Dinero::pesosACentavos($d['monto_inicial']),
+                (float) $d['tasa_interes'], (int) $d['numero_cuotas'], $d['fecha_inicio'],
+                (int) date('d', strtotime($d['fecha_vencimiento'] ?: $d['fecha_inicio'])),
+                (int) $d['cuenta_liquida_id'], $d['entidad'] ?? null, $d['tipo_obligacion'],
+                $d['tipo_tasa'], $d['periodicidad'], $d['fecha_vencimiento'] ?? null,
+                $d['metodo_amortizacion'], Dinero::pesosACentavos($d['seguro'] ?? 0), Dinero::pesosACentavos($d['otros_cargos'] ?? 0)
+            );
+        } catch (\InvalidArgumentException $e) {
+            return back()->withErrors(['monto_inicial' => $e->getMessage()])->withInput();
+        }
+
         return redirect()->route('app.deudas.index')->with('status', 'Obligación registrada correctamente.');
+    }
+
+    public function pagar(PagoPrestamoRequest $request, PrestamoService $service): RedirectResponse
+    {
+        $d = $request->validated();
+        $prestamo = Prestamo::findOrFail($d['prestamo_id']);
+        $this->authorize('update', $prestamo);
+        try {
+            $service->registrarPago(
+                Auth::id(),
+                (int) $d['prestamo_id'],
+                Dinero::pesosACentavos($d['monto']),
+                $d['fecha']
+            );
+        } catch (\InvalidArgumentException $e) {
+            return back()->withErrors(['monto' => $e->getMessage()]);
+        }
+
+        return redirect()->route('app.deudas.index')->with('status', 'Pago de préstamo registrado.');
     }
 }
