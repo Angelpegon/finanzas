@@ -1,0 +1,9 @@
+@extends('layouts.app', ['title' => 'Calendario financiero'])
+@section('content')
+<p class="eyebrow mb-2">Agenda financiera</p>
+<h1 class="display-title mb-1">Calendario</h1>
+<p class="text-secondary mb-4">Todo lo que ocurrió y lo que viene, en un solo lugar.</p>
+<div class="d-flex justify-content-between align-items-center mb-4"><a class="btn btn-outline-primary rounded-4" href="{{ route('app.calendario', ['anio' => $fecha->copy()->subMonth()->year, 'mes' => $fecha->copy()->subMonth()->month]) }}">‹ Anterior</a><strong>{{ $fecha->locale('es')->monthName }} {{ $fecha->year }}</strong><a class="btn btn-outline-primary rounded-4" href="{{ route('app.calendario', ['anio' => $fecha->copy()->addMonth()->year, 'mes' => $fecha->copy()->addMonth()->month]) }}">Siguiente ›</a></div>
+<div class="d-flex flex-wrap gap-2 mb-4"><span class="status-pill">REAL</span><span class="status-pill text-primary">PROYECTADO</span><span class="status-pill text-danger">VENCIDO</span></div>
+<div class="vstack gap-3">@forelse($eventos as $evento)<article class="account-card"><div class="account-card__icon">{{ match($evento['tipo']) { 'ingreso' => '↑', 'gasto' => '↓', 'pago', 'cuota', 'limite_tarjeta' => '$', 'corte' => '▣', default => '•' } }}</div><div class="account-card__body"><div class="d-flex justify-content-between gap-2"><div><h2>{{ $evento['descripcion'] }}</h2><small>{{ \Carbon\Carbon::parse($evento['fecha'])->format('d/m/Y') }} · {{ ucfirst($evento['tipo']) }}</small></div><strong class="{{ $evento['tipo'] === 'ingreso' ? 'text-success' : '' }}">@if($evento['monto_centavos'] > 0)@cop($evento['monto_centavos'])@else — @endif</strong></div><div class="mt-2"><span class="status-pill {{ $evento['estado'] === 'vencido' ? 'text-danger' : ($evento['estado'] === 'proyectado' ? 'text-primary' : '') }}">{{ strtoupper($evento['estado']) }}</span></div></div></article>@empty<div class="alert alert-light">No hay eventos para este mes.</div>@endforelse</div>
+@endsection
