@@ -8,19 +8,24 @@ use App\Models\CuentaLiquida;
 use App\Models\MetaAhorro;
 use App\Services\MetaAhorroService;
 use App\Support\Dinero;
+use App\Support\ErrorDominio;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\View\View;
 
 class MetaAhorroController extends Controller
 {
-    public function index(): View
+    public function index(MetaAhorroService $metas): View
     {
+        $bolsilloIds = $metas->idsBolsillos(Auth::id());
+        $cuentas = CuentaLiquida::where('activa', true)->orderBy('nombre')->get();
+
         return view('metas.index', [
             'metas' => MetaAhorro::with('cuentaLiquida')
                 ->orderByRaw("CASE prioridad WHEN 'alta' THEN 1 WHEN 'media' THEN 2 ELSE 3 END")
                 ->get(),
-            'cuentas' => CuentaLiquida::where('activa', true)->orderBy('nombre')->get(),
+            'cuentas' => $cuentas,
+            'cuentasOperativas' => $cuentas->whereNotIn('id', $bolsilloIds)->values(),
         ]);
     }
 
@@ -28,16 +33,20 @@ class MetaAhorroController extends Controller
     {
         $this->authorize('create', MetaAhorro::class);
         $d = $request->validated();
-        $service->crear(
-            Auth::id(),
-            $d['nombre'],
-            Dinero::pesosACentavos($d['objetivo']),
-            $d['fecha_objetivo'] ?? null,
-            Dinero::pesosACentavos($d['aporte_mensual'] ?? 0),
-            (int) $d['cuenta_liquida_id'],
-            $d['prioridad'],
-            $d['estado']
-        );
+        try {
+            $service->crear(
+                Auth::id(),
+                $d['nombre'],
+                Dinero::pesosACentavos($d['objetivo']),
+                $d['fecha_objetivo'] ?? null,
+                Dinero::pesosACentavos($d['aporte_mensual'] ?? 0),
+                (int) $d['cuenta_liquida_id'],
+                $d['prioridad'],
+                $d['estado']
+            );
+        } catch (\InvalidArgumentException $e) {
+            return back()->withErrors(ErrorDominio::aCampo($e, 'objetivo'), 'meta')->withInput();
+        }
 
         return redirect()->route('app.metas.index')->with('status', 'Meta creada. El avance solo crece con aportes contabilizados.');
     }
@@ -57,7 +66,7 @@ class MetaAhorroController extends Controller
                 $d['descripcion'] ?? null
             );
         } catch (\InvalidArgumentException $e) {
-            return back()->withErrors(['monto' => $e->getMessage()]);
+            return back()->withErrors(ErrorDominio::aCampo($e, 'monto'), 'aporte')->withInput();
         }
 
         return redirect()->route('app.metas.index')->with('status', 'Aporte contabilizado en el libro.');

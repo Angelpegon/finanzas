@@ -4,9 +4,7 @@ namespace App\Services;
 
 use App\Models\CuotaPrestamo;
 use App\Models\CuotaTarjeta;
-use App\Models\HechoTesoreria;
 use App\Models\MetaAhorro;
-use App\Models\Pago;
 use App\Models\Recurrencia;
 use Illuminate\Support\Carbon;
 
@@ -17,25 +15,24 @@ class ProyeccionService
         $fecha ??= now();
         $inicio = $fecha->copy()->startOfMonth();
         $fin = $fecha->copy()->endOfMonth();
-        $ingresos = (int) HechoTesoreria::withoutGlobalScopes()->where('usuario_id', $usuarioId)
-            ->where('tipo', 'ingreso')->whereBetween('fecha', [$inicio, $fin])->sum('monto_centavos');
-        $gastos = (int) HechoTesoreria::withoutGlobalScopes()->where('usuario_id', $usuarioId)
-            ->where('tipo', 'gasto')->whereBetween('fecha', [$inicio, $fin])->sum('monto_centavos');
+        $ingresos = \App\Support\AgregadosLibro::ingresosReales($usuarioId, $inicio, $fin);
+        $gastos = \App\Support\AgregadosLibro::gastosReales($usuarioId, $inicio, $fin);
         $cuotasPrestamo = (int) CuotaPrestamo::withoutGlobalScopes()->where('usuario_id', $usuarioId)
             ->where('pagada', false)->whereBetween('fecha_vencimiento', [$inicio, $fin])
-            ->sum('capital_centavos') + (int) CuotaPrestamo::withoutGlobalScopes()->where('usuario_id', $usuarioId)
-                ->where('pagada', false)->whereBetween('fecha_vencimiento', [$inicio, $fin])->sum('interes_centavos');
+            ->get()->sum(fn (CuotaPrestamo $cuota): int => (int) $cuota->total_centavos);
         $cuotasTarjeta = (int) CuotaTarjeta::withoutGlobalScopes()->where('usuario_id', $usuarioId)
             ->where('pagada', false)->whereBetween('fecha_vencimiento', [$inicio, $fin])
-            ->sum('capital_centavos') + (int) CuotaTarjeta::withoutGlobalScopes()->where('usuario_id', $usuarioId)
-                ->where('pagada', false)->whereBetween('fecha_vencimiento', [$inicio, $fin])->sum('interes_centavos');
+            ->get()->sum(fn (CuotaTarjeta $cuota): int => (int) ($cuota->capital_centavos + $cuota->interes_centavos));
         $recurrenteIngreso = $this->montoMensualRecurrente($usuarioId, 'ingreso');
         $recurrenteGasto = $this->montoMensualRecurrente($usuarioId, 'gasto');
-        $metas = (int) MetaAhorro::withoutGlobalScopes()->where('usuario_id', $usuarioId)->sum('aporte_mensual_centavos');
+        $metas = (int) MetaAhorro::withoutGlobalScopes()
+            ->where('usuario_id', $usuarioId)
+            ->where('estado', 'activa')
+            ->sum('aporte_mensual_centavos');
 
         return [
-            'ingresos' => $ingresos + $recurrenteIngreso,
-            'gastos' => $gastos + $recurrenteGasto,
+            'ingresos' => max($ingresos, $recurrenteIngreso),
+            'gastos' => max($gastos, $recurrenteGasto),
             'cuotas' => $cuotasPrestamo + $cuotasTarjeta,
             'metas' => $metas,
             'capacidad_ahorro' => $ingresos + $recurrenteIngreso - $gastos - $recurrenteGasto - $cuotasPrestamo - $cuotasTarjeta - $metas,
@@ -65,9 +62,7 @@ class ProyeccionService
                 + (int) CuotaTarjeta::withoutGlobalScopes()->where('usuario_id', $usuarioId)
                     ->where('pagada', false)->whereBetween('fecha_vencimiento', [$inicio, $fin])
                     ->get()->sum(fn (CuotaTarjeta $cuota): int => $cuota->total_centavos);
-            $pagos = (int) Pago::withoutGlobalScopes()->where('usuario_id', $usuarioId)
-                ->whereNotIn('tipo', ['prestamo', 'credito', 'tarjeta'])
-                ->whereBetween('fecha', [$inicio, $fin])->sum('monto_centavos');
+            $pagos = 0;
 
             $resultado[] = [
                 'periodo' => $mes->format('Y-m'),
@@ -76,7 +71,7 @@ class ProyeccionService
                 'gastos_centavos' => $gastos,
                 'deudas_centavos' => $deudas,
                 'pagos_centavos' => $pagos,
-                'disponible_centavos' => $ingresos - $gastos - $deudas - $pagos,
+                'disponible_centavos' => $ingresos - $gastos - $deudas,
                 'estado' => 'proyectado',
             ];
         }

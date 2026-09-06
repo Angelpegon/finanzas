@@ -14,6 +14,7 @@ use App\Models\TarjetaCredito;
 use App\Services\PagoService;
 use App\Services\TesoreriaService;
 use App\Support\Dinero;
+use App\Support\ErrorDominio;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\View\View;
@@ -46,7 +47,7 @@ class PagoController extends Controller
                 isset($d['tarjeta_credito_id']) ? (int) $d['tarjeta_credito_id'] : null
             );
         } catch (\InvalidArgumentException $e) {
-            return back()->withErrors(['monto' => $e->getMessage()])->withInput();
+            return back()->withErrors(ErrorDominio::aCampo($e, 'monto'), 'pago')->withInput();
         }
 
         return redirect()->route('app.pagos.index')->with('status', 'Pago registrado una sola vez y contabilizado.');
@@ -67,7 +68,7 @@ class PagoController extends Controller
                 $d['descripcion'] ?? 'Transferencia entre cuentas'
             );
         } catch (\InvalidArgumentException $e) {
-            return back()->withErrors(['monto' => $e->getMessage()])->withInput();
+            return back()->withErrors(ErrorDominio::aCampo($e, 'monto'), 'transferencia')->withInput();
         }
 
         return redirect()->route('app.pagos.index')->with('status', 'Transferencia contabilizada.');

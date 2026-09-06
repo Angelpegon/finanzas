@@ -8,11 +8,12 @@ use Illuminate\Http\Request;
 class TrustProxies extends Middleware
 {
     /**
-     * The trusted proxies for this application.
+     * Plesk (nginx → Apache/PHP-FPM) termina TLS delante de la app.
+     * Sin esto, Laravel no ve HTTPS y rompe cookies secure / URLs.
      *
      * @var array<int, string>|string|null
      */
-    protected $proxies;
+    protected $proxies = '*';
 
     /**
      * The headers that should be used to detect proxies.

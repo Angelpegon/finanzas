@@ -20,7 +20,11 @@ class MetaAhorro extends Model
 
     public function getProgresoCentavosAttribute(): int
     {
-        return min((int) $this->objetivo_centavos, max(0, (int) $this->monto_actual_centavos));
+        if (! $this->exists) {
+            return 0;
+        }
+
+        return app(\App\Services\MetaAhorroService::class)->avanceCentavos((int) $this->usuario_id, (int) $this->id);
     }
 
     public function getPorcentajeCompletadoAttribute(): float

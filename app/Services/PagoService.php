@@ -37,7 +37,10 @@ class PagoService
             if (Pago::withoutGlobalScopes()->where('usuario_id', $usuarioId)->where('referencia', $referencia)->exists()) {
                 throw new \InvalidArgumentException('Ya existe un pago con esa referencia.');
             }
-            $liquida = CuentaLiquida::withoutGlobalScopes()->where('usuario_id', $usuarioId)->where('activa', true)->findOrFail($cuentaLiquidaId);
+            $liquida = CuentaLiquida::withoutGlobalScopes()->where('usuario_id', $usuarioId)->where('activa', true)->lockForUpdate()->findOrFail($cuentaLiquidaId);
+            if ($liquida->saldoCentavos() < $montoCentavos) {
+                throw new \InvalidArgumentException('Saldo insuficiente en la cuenta de pago.');
+            }
             if (in_array($tipo, ['gasto', 'servicio', 'deuda_personal', 'otra_obligacion'], true) && $categoriaId === null) {
                 throw new \InvalidArgumentException('Este pago requiere una categoría de gasto.');
             }

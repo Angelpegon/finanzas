@@ -4,7 +4,6 @@ namespace App\Services;
 
 use App\Models\CuotaPrestamo;
 use App\Models\CuotaTarjeta;
-use App\Models\HechoTesoreria;
 use App\Models\Presupuesto;
 use App\Models\TarjetaCredito;
 use Illuminate\Support\Carbon;
@@ -35,8 +34,11 @@ class AlertaService
         $presupuesto = Presupuesto::with('lineas.categoria')->withoutGlobalScopes()
             ->where('usuario_id', $usuarioId)->where('anio', $fecha->year)->where('mes', $fecha->month)->first();
         foreach ($presupuesto?->lineas ?? [] as $linea) {
-            if ($linea->porcentaje_consumido >= 100) {
+            $cruzado = collect($linea->alertas)->max() ?: 0;
+            if ($cruzado >= 100) {
                 $alertas[] = $this->crear('danger', 'Presupuesto excedido', "{$linea->categoria->nombre} superó el presupuesto.");
+            } elseif ($cruzado > 0) {
+                $alertas[] = $this->crear('warning', 'Presupuesto en umbral', "{$linea->categoria->nombre} alcanzó el {$cruzado}% del presupuesto.");
             }
         }
 
@@ -69,11 +71,12 @@ class AlertaService
 
     private function totalesMes(int $usuarioId, Carbon $fecha): array
     {
+        $inicio = $fecha->copy()->startOfMonth();
+        $fin = $fecha->copy()->endOfMonth();
+
         return [
-            'ingresos' => (int) HechoTesoreria::withoutGlobalScopes()->where('usuario_id', $usuarioId)
-                ->where('tipo', 'ingreso')->whereBetween('fecha', [$fecha->copy()->startOfMonth(), $fecha->copy()->endOfMonth()])->sum('monto_centavos'),
-            'gastos' => (int) HechoTesoreria::withoutGlobalScopes()->where('usuario_id', $usuarioId)
-                ->where('tipo', 'gasto')->whereBetween('fecha', [$fecha->copy()->startOfMonth(), $fecha->copy()->endOfMonth()])->sum('monto_centavos'),
+            'ingresos' => \App\Support\AgregadosLibro::ingresosReales($usuarioId, $inicio, $fin),
+            'gastos' => \App\Support\AgregadosLibro::gastosReales($usuarioId, $inicio, $fin),
         ];
     }
 

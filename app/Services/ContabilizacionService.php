@@ -112,6 +112,15 @@ class ContabilizacionService
                 'asiento:'.$original->id.'->'.$asiento->id
             );
 
+            if ($original->origen_tipo === \App\Models\HechoTesoreria::class) {
+                $hecho = \App\Models\HechoTesoreria::withoutGlobalScopes()
+                    ->where('usuario_id', $usuarioId)
+                    ->find($original->origen_id);
+                if ($hecho?->meta_ahorro_id) {
+                    app(\App\Services\MetaAhorroService::class)->sincronizarProgreso($usuarioId, (int) $hecho->meta_ahorro_id);
+                }
+            }
+
             return $asiento->load('movimientos');
         });
     }

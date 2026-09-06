@@ -26,7 +26,7 @@
     </div>
     <div>
         <label for="password_confirmation" class="form-label">Confirmar contraseña</label>
-        <input id="password_confirmation" name="password_confirmation" type="password" class="form-control form-control-lg" autocomplete="new-password" required>
+        <input id="password_confirmation" name="password_confirmation" type="password" class="form-control form-control-lg @error('password') is-invalid @enderror" autocomplete="new-password" required>
     </div>
     <button class="btn btn-primary btn-lg w-100" type="submit">Crear cuenta</button>
 </form>

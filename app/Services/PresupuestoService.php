@@ -2,7 +2,6 @@
 
 namespace App\Services;
 
-use App\Models\HechoTesoreria;
 use App\Models\Presupuesto;
 use App\Models\PresupuestoLinea;
 use Illuminate\Support\Carbon;
@@ -30,6 +29,11 @@ class PresupuestoService
                     'categoria_id' => (int) $categoriaId,
                 ], ['tope_centavos' => (int) $tope]);
             }
+            PresupuestoLinea::withoutGlobalScopes()
+                ->where('usuario_id', $usuarioId)
+                ->where('presupuesto_id', $presupuesto->id)
+                ->whereNotIn('categoria_id', array_map('intval', array_keys($lineas)))
+                ->delete();
             return $presupuesto->load('lineas.categoria');
         });
     }
@@ -37,10 +41,8 @@ class PresupuestoService
     public function consumo(int $usuarioId, int $categoriaId, int $anio, int $mes): int
     {
         $inicio = Carbon::create($anio, $mes, 1)->startOfDay();
-        return (int) HechoTesoreria::withoutGlobalScopes()
-            ->where('usuario_id', $usuarioId)->where('categoria_id', $categoriaId)
-            ->where('tipo', 'gasto')->whereBetween('fecha', [$inicio, $inicio->copy()->endOfMonth()])
-            ->sum('monto_centavos');
+
+        return \App\Support\AgregadosLibro::gastosReales($usuarioId, $inicio, $inicio->copy()->endOfMonth(), $categoriaId);
     }
 
     public function proyeccion(int $usuarioId, int $categoriaId, int $anio, int $mes): int

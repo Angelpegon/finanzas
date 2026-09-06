@@ -15,6 +15,20 @@ use App\Http\Controllers\MetaAhorroController;
 use App\Http\Controllers\CalendarioController;
 use App\Http\Controllers\ProyeccionController;
 
+Route::get('/manifest.json', fn () => response(file_get_contents(public_path('manifest.json')), 200, [
+    'Content-Type' => 'application/manifest+json',
+    'Cache-Control' => 'no-cache',
+]));
+Route::get('/sw.js', fn () => response(file_get_contents(public_path('sw.js')), 200, [
+    'Content-Type' => 'application/javascript; charset=utf-8',
+    'Cache-Control' => 'no-cache',
+    'Service-Worker-Allowed' => '/',
+]));
+Route::get('/offline.html', fn () => response(file_get_contents(public_path('offline.html')), 200, [
+    'Content-Type' => 'text/html; charset=UTF-8',
+    'Cache-Control' => 'no-cache',
+]));
+
 Route::get('/', fn () => redirect()->route(Auth::check() ? 'app.situacion' : 'login'));
 Route::middleware('guest')->group(function (): void {
     Route::get('/login', [AuthController::class, 'loginForm'])->name('login');
@@ -28,6 +42,8 @@ Route::middleware('auth')->group(function (): void {
     Route::get('/cuentas/crear', [CuentaLiquidaController::class, 'create'])->name('app.cuentas.create');
     Route::post('/cuentas', [CuentaLiquidaController::class, 'store'])->name('app.cuentas.store');
     Route::delete('/cuentas/{cuenta}', [CuentaLiquidaController::class, 'destroy'])->name('app.cuentas.destroy');
+    Route::post('/cuentas/{cuenta}/restaurar', [CuentaLiquidaController::class, 'restore'])->name('app.cuentas.restore');
+    Route::post('/cuentas/{cuenta}/cancelar', [CuentaLiquidaController::class, 'cancelar'])->name('app.cuentas.cancelar');
     Route::get('/ingresos/crear', [IngresoController::class, 'create'])->name('app.ingresos.create');
     Route::post('/ingresos', [IngresoController::class, 'store'])->name('app.ingresos.store');
     Route::get('/gastos/crear', [GastoController::class, 'create'])->name('app.gastos.create');

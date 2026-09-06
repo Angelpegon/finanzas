@@ -16,12 +16,19 @@ class TarjetaService
 {
     public function __construct(private readonly ContabilizacionService $contabilizacion) {}
 
-    public function crear(int $usuarioId, string $nombre, int $cupoCentavos, int $diaCorte, int $diaPago, float $ea): TarjetaCredito
-    {
+    public function crear(
+        int $usuarioId,
+        string $nombre,
+        int $cupoCentavos,
+        int $diaCorte,
+        int $diaPago,
+        float $tasaMensualPorcentaje,
+        ?string $entidad = null
+    ): TarjetaCredito {
         if ($cupoCentavos <= 0 || $diaCorte < 1 || $diaCorte > 31 || $diaPago < 1 || $diaPago > 31) {
             throw new \InvalidArgumentException('Los datos de la tarjeta no son válidos.');
         }
-        return DB::transaction(function () use ($usuarioId, $nombre, $cupoCentavos, $diaCorte, $diaPago, $ea): TarjetaCredito {
+        return DB::transaction(function () use ($usuarioId, $nombre, $cupoCentavos, $diaCorte, $diaPago, $tasaMensualPorcentaje, $entidad): TarjetaCredito {
             $cuenta = CuentaContable::withoutGlobalScopes()->create([
                 'usuario_id' => $usuarioId, 'codigo' => '22'.str_pad((string) (1000 + $usuarioId + CuentaContable::withoutGlobalScopes()->where('usuario_id', $usuarioId)->count()), 6, '0', STR_PAD_LEFT),
                 'nombre' => 'Tarjeta - '.$nombre, 'naturaleza' => 'pasivo',
@@ -29,7 +36,9 @@ class TarjetaService
             return TarjetaCredito::withoutGlobalScopes()->create([
                 'usuario_id' => $usuarioId, 'cuenta_contable_id' => $cuenta->id,
                 'nombre' => $nombre, 'cupo_centavos' => $cupoCentavos,
-                'dia_corte' => $diaCorte, 'dia_pago' => $diaPago, 'ea_porcentaje' => $ea,
+                'dia_corte' => $diaCorte, 'dia_pago' => $diaPago,
+                'ea_porcentaje' => \App\Support\Tasa::eaDesdeMensual($tasaMensualPorcentaje),
+                'entidad' => $entidad,
             ]);
         });
     }
@@ -69,7 +78,7 @@ class TarjetaService
                 CuotaTarjeta::withoutGlobalScopes()->create([
                     'usuario_id' => $usuarioId, 'compra_tarjeta_id' => $compra->id,
                     'tarjeta_credito_id' => $tarjeta->id, 'numero' => $i,
-                    'fecha_vencimiento' => Carbon::parse($fecha)->addMonths($i - 1)->toDateString(),
+                    'fecha_vencimiento' => $this->fechaCuota($tarjeta, Carbon::parse($fecha), $i)->toDateString(),
                     'capital_centavos' => $i === $cuotas ? $montoCentavos - ($capital * ($cuotas - 1)) : $capital,
                     'interes_centavos' => $interes,
                 ]);
@@ -86,12 +95,15 @@ class TarjetaService
     public function registrarPago(int $usuarioId, int $tarjetaId, int $cuentaLiquidaId, int $cuotaId, string $fecha): Pago
     {
         return DB::transaction(function () use ($usuarioId, $tarjetaId, $cuentaLiquidaId, $cuotaId, $fecha): Pago {
-            $tarjeta = TarjetaCredito::withoutGlobalScopes()->where('usuario_id', $usuarioId)->findOrFail($tarjetaId);
-            $liquida = CuentaLiquida::withoutGlobalScopes()->where('usuario_id', $usuarioId)->where('activa', true)->findOrFail($cuentaLiquidaId);
+            $tarjeta = TarjetaCredito::withoutGlobalScopes()->where('usuario_id', $usuarioId)->lockForUpdate()->findOrFail($tarjetaId);
+            $liquida = CuentaLiquida::withoutGlobalScopes()->where('usuario_id', $usuarioId)->where('activa', true)->lockForUpdate()->findOrFail($cuentaLiquidaId);
             $cuota = CuotaTarjeta::withoutGlobalScopes()
                 ->where('usuario_id', $usuarioId)->where('tarjeta_credito_id', $tarjeta->id)
-                ->whereKey($cuotaId)->where('pagada', false)->firstOrFail();
+                ->whereKey($cuotaId)->where('pagada', false)->lockForUpdate()->firstOrFail();
             $montoCentavos = (int) $cuota->capital_centavos + (int) $cuota->interes_centavos;
+            if ($liquida->saldoCentavos() < $montoCentavos) {
+                throw new \InvalidArgumentException('Saldo insuficiente en la cuenta de pago.');
+            }
             $pago = Pago::withoutGlobalScopes()->create([
                 'usuario_id' => $usuarioId, 'tipo' => 'tarjeta', 'tarjeta_credito_id' => $tarjeta->id,
                 'cuenta_liquida_id' => $liquida->id, 'fecha' => $fecha, 'monto_centavos' => $montoCentavos,
@@ -114,5 +126,17 @@ class TarjetaService
             $this->contabilizacion->postear($usuarioId, $fecha, 'Pago de tarjeta '.$tarjeta->nombre, Pago::class, $pago->id, $movimientos);
             return $pago;
         });
+    }
+
+    private function fechaCuota(TarjetaCredito $tarjeta, Carbon $compra, int $numero): Carbon
+    {
+        $base = $compra->copy()->startOfDay();
+        $diaPago = (int) $tarjeta->dia_pago;
+        if ($base->day >= $diaPago) {
+            $base->addMonth();
+        }
+        $base->day(min($diaPago, $base->daysInMonth));
+
+        return $base->addMonths($numero - 1);
     }
 }

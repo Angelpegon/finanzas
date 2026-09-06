@@ -24,16 +24,17 @@ class CalendarioFinancieroService
                 $eventos->push($this->evento($hecho->fecha, $hecho->tipo->value, 'real', $hecho->monto_centavos, $hecho->descripcion ?: ucfirst($hecho->tipo->value)));
             });
         Pago::withoutGlobalScopes()->where('usuario_id', $usuarioId)
+            ->whereNotIn('tipo', ['prestamo', 'credito', 'tarjeta'])
             ->whereBetween('fecha', [$inicio, $fin])->get()->each(function (Pago $pago) use ($eventos): void {
                 $eventos->push($this->evento($pago->fecha, 'pago', 'real', $pago->monto_centavos, $pago->destino ?: $pago->descripcion ?: 'Pago'));
             });
 
-        CuotaPrestamo::withoutGlobalScopes()->where('usuario_id', $usuarioId)->whereBetween('fecha_vencimiento', [$inicio, $fin])
+        CuotaPrestamo::withoutGlobalScopes()->where('usuario_id', $usuarioId)->where('pagada', false)->whereBetween('fecha_vencimiento', [$inicio, $fin])
             ->with('prestamo')->get()->each(function (CuotaPrestamo $cuota) use ($eventos): void {
                 $estado = $cuota->pagada ? 'real' : ($cuota->fecha_vencimiento->lt(now()->startOfDay()) ? 'vencido' : 'proyectado');
                 $eventos->push($this->evento($cuota->fecha_vencimiento, 'cuota', $estado, $cuota->total_centavos, 'Cuota '.($cuota->prestamo?->nombre ?: 'préstamo').' #'.$cuota->numero));
             });
-        CuotaTarjeta::withoutGlobalScopes()->where('usuario_id', $usuarioId)->whereBetween('fecha_vencimiento', [$inicio, $fin])
+        CuotaTarjeta::withoutGlobalScopes()->where('usuario_id', $usuarioId)->where('pagada', false)->whereBetween('fecha_vencimiento', [$inicio, $fin])
             ->with('compra.tarjetaCredito')->get()->each(function (CuotaTarjeta $cuota) use ($eventos): void {
                 $estado = $cuota->pagada ? 'real' : ($cuota->fecha_vencimiento->lt(now()->startOfDay()) ? 'vencido' : 'proyectado');
                 $eventos->push($this->evento($cuota->fecha_vencimiento, 'cuota', $estado, $cuota->total_centavos, 'Cuota '.($cuota->compra?->tarjetaCredito?->nombre ?: 'tarjeta').' #'.$cuota->numero));
@@ -55,6 +56,10 @@ class CalendarioFinancieroService
 
     private function agregarRecurrencias(Collection $eventos, Recurrencia $recurrencia, Carbon $inicio, Carbon $fin): void
     {
+        if (in_array($recurrencia->periodicidad, ['mensual', 'anual', 'unico'], true)
+            && $this->recurrenciaYaCubrida($recurrencia, $inicio, $fin)) {
+            return;
+        }
         if ($recurrencia->periodicidad === 'unico') {
             $fecha = $this->fechaDia($inicio, $recurrencia->dia_del_mes);
             if ($fecha->isSameMonth($inicio)) {
@@ -79,6 +84,28 @@ class CalendarioFinancieroService
             }
             $fecha->addDays($paso);
         }
+    }
+
+    private function recurrenciaYaCubrida(Recurrencia $recurrencia, Carbon $inicio, Carbon $fin): bool
+    {
+        if (! $recurrencia->categoria_id) {
+            return false;
+        }
+        $hechos = (int) HechoTesoreria::withoutGlobalScopes()
+            ->where('usuario_id', $recurrencia->usuario_id)
+            ->where('tipo', $recurrencia->tipo)
+            ->where('categoria_id', $recurrencia->categoria_id)
+            ->whereBetween('fecha', [$inicio->toDateString(), $fin->toDateString()])
+            ->count();
+        $pagos = $recurrencia->tipo === 'gasto'
+            ? (int) Pago::withoutGlobalScopes()
+                ->where('usuario_id', $recurrencia->usuario_id)
+                ->where('categoria_id', $recurrencia->categoria_id)
+                ->whereBetween('fecha', [$inicio->toDateString(), $fin->toDateString()])
+                ->count()
+            : 0;
+
+        return ($hechos + $pagos) > 0;
     }
 
     private function fechaDia(Carbon $mes, int $dia): Carbon

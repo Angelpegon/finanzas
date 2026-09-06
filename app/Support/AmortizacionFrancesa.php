@@ -11,7 +11,7 @@ class AmortizacionFrancesa
      *
      * @return list<array{numero:int,fecha:string,capital:int,interes:int,cuota:int,saldo:int}>
      */
-    public static function calendario(int $principalCentavos, float $tasaPeriodo, int $plazos, Carbon $primeraFecha): array
+    public static function calendario(int $principalCentavos, float $tasaPeriodo, int $plazos, Carbon $primeraFecha, string $periodicidad = 'mensual'): array
     {
         if ($principalCentavos <= 0 || $plazos < 1) {
             throw new \InvalidArgumentException('Principal y plazo deben ser positivos.');
@@ -33,7 +33,7 @@ class AmortizacionFrancesa
             $saldo -= $capital;
             $filas[] = [
                 'numero' => $i,
-                'fecha' => $primeraFecha->copy()->addMonths($i - 1)->toDateString(),
+                'fecha' => self::fechaCuota($primeraFecha, $i - 1, $periodicidad),
                 'capital' => $capital,
                 'interes' => $interes,
                 'cuota' => $cuotaFila,
@@ -46,10 +46,10 @@ class AmortizacionFrancesa
 
     public static function calendarioMetodo(
         int $principalCentavos, float $tasaPeriodo, int $plazos, Carbon $primeraFecha,
-        string $metodo, int $seguroCentavos = 0, int $otrosCargosCentavos = 0
+        string $metodo, int $seguroCentavos = 0, int $otrosCargosCentavos = 0, string $periodicidad = 'mensual'
     ): array {
         if ($metodo === 'frances') {
-            $filas = self::calendario($principalCentavos, $tasaPeriodo, $plazos, $primeraFecha);
+            $filas = self::calendario($principalCentavos, $tasaPeriodo, $plazos, $primeraFecha, $periodicidad);
         } elseif ($metodo === 'lineal') {
             $filas = [];
             $saldo = $principalCentavos;
@@ -58,14 +58,14 @@ class AmortizacionFrancesa
                 $capital = $i === $plazos ? $saldo : $capitalBase;
                 $interes = (int) round($saldo * $tasaPeriodo);
                 $saldo -= $capital;
-                $filas[] = ['numero' => $i, 'fecha' => $primeraFecha->copy()->addMonths($i - 1)->toDateString(), 'capital' => $capital, 'interes' => $interes, 'cuota' => $capital + $interes, 'saldo' => max(0, $saldo)];
+                $filas[] = ['numero' => $i, 'fecha' => self::fechaCuota($primeraFecha, $i - 1, $periodicidad), 'capital' => $capital, 'interes' => $interes, 'cuota' => $capital + $interes, 'saldo' => max(0, $saldo)];
             }
         } elseif ($metodo === 'solo_interes') {
             $filas = [];
             for ($i = 1; $i <= $plazos; $i++) {
                 $interes = (int) round($principalCentavos * $tasaPeriodo);
                 $capital = $i === $plazos ? $principalCentavos : 0;
-                $filas[] = ['numero' => $i, 'fecha' => $primeraFecha->copy()->addMonths($i - 1)->toDateString(), 'capital' => $capital, 'interes' => $interes, 'cuota' => $capital + $interes, 'saldo' => $i === $plazos ? 0 : $principalCentavos];
+                $filas[] = ['numero' => $i, 'fecha' => self::fechaCuota($primeraFecha, $i - 1, $periodicidad), 'capital' => $capital, 'interes' => $interes, 'cuota' => $capital + $interes, 'saldo' => $i === $plazos ? 0 : $principalCentavos];
             }
         } else {
             throw new \InvalidArgumentException('Método de amortización no soportado.');
@@ -108,5 +108,17 @@ class AmortizacionFrancesa
         $n = log($cuotaCentavos / ($cuotaCentavos - $principalRestante * $tasaPeriodo)) / log(1 + $tasaPeriodo);
 
         return max(1, (int) ceil($n - 1e-9));
+    }
+
+    public static function fechaCuota(Carbon $primeraFecha, int $indiceCero, string $periodicidad = 'mensual'): string
+    {
+        $fecha = $primeraFecha->copy();
+
+        return match ($periodicidad) {
+            'semanal' => $fecha->addWeeks($indiceCero)->toDateString(),
+            'quincenal' => $fecha->addDays(15 * $indiceCero)->toDateString(),
+            'anual' => $fecha->addYears($indiceCero)->toDateString(),
+            default => $fecha->addMonths($indiceCero)->toDateString(),
+        };
     }
 }

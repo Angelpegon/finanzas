@@ -6,9 +6,9 @@ use App\Enums\TipoHechoTesoreria;
 use App\Models\Categoria;
 use App\Models\CuentaLiquida;
 use App\Models\CuotaPrestamo;
-use App\Services\CuentaLiquidaService;
 use App\Services\MetaAhorroService;
 use App\Services\PrestamoService;
+use App\Services\SituacionFinancieraService;
 use App\Services\TarjetaService;
 use App\Services\TesoreriaService;
 use Tests\CreaUsuarioConCatalogo;
@@ -71,19 +71,52 @@ class ObligacionesYMetasTest extends TestCase
     {
         $user = $this->usuarioConCatalogo();
         $origen = CuentaLiquida::withoutGlobalScopes()->where('usuario_id', $user->id)->firstOrFail();
-        $bolsillo = app(CuentaLiquidaService::class)->crear($user->id, [
-            'nombre' => 'Meta viaje', 'tipo' => 'banco', 'saldo_inicial' => '0',
-        ]);
         app(TesoreriaService::class)->registrar(
             $user->id, TipoHechoTesoreria::Apertura, now()->toDateString(), 500_000_00, $origen->id
         );
         $meta = app(MetaAhorroService::class)->crear(
-            $user->id, 'Viaje', 1_000_000_00, null, 100_000_00, $bolsillo->id
+            $user->id, 'Viaje', 1_000_000_00, null, 100_000_00, $origen->id
         );
+        $bolsillo = $meta->cuentaLiquida;
+        $this->assertNotNull($bolsillo);
+        $this->assertSame($origen->nombre.'_bolsillo1', $bolsillo->nombre);
+        $this->assertNotSame($origen->id, $bolsillo->id);
         $this->assertSame(0, $meta->progreso_centavos);
 
         app(MetaAhorroService::class)->aportar($user->id, $meta->id, 150_000_00, $origen->id, now()->toDateString());
         $this->assertSame(150_000_00, $meta->fresh()->progreso_centavos);
         $this->assertSame(150_000_00, $bolsillo->fresh()->saldoCentavos());
+    }
+
+    public function test_disponible_excluye_saldo_de_bolsillo_de_meta_activa(): void
+    {
+        $user = $this->usuarioConCatalogo();
+        $origen = CuentaLiquida::withoutGlobalScopes()->where('usuario_id', $user->id)->firstOrFail();
+        app(TesoreriaService::class)->registrar(
+            $user->id, TipoHechoTesoreria::Apertura, now()->toDateString(), 500_000_00, $origen->id
+        );
+        $meta = app(MetaAhorroService::class)->crear(
+            $user->id, 'Viaje', 1_000_000_00, null, 0, $origen->id
+        );
+        app(MetaAhorroService::class)->aportar($user->id, $meta->id, 150_000_00, $origen->id, now()->toDateString());
+
+        $situacion = app(SituacionFinancieraService::class)->responder($user->id);
+
+        $this->assertSame(500_000_00, $situacion['tengo_centavos']);
+        $this->assertSame(150_000_00, $situacion['reservado_metas_centavos']);
+        // Libre 350k − cuotas 0 − aporte_mensual 0 − gastos proyectados pendientes
+        $this->assertSame(350_000_00, $situacion['dinero_disponible_real_centavos']);
+    }
+
+    public function test_segunda_meta_sobre_misma_referencia_incrementa_sufijo_bolsillo(): void
+    {
+        $user = $this->usuarioConCatalogo();
+        $origen = CuentaLiquida::withoutGlobalScopes()->where('usuario_id', $user->id)->firstOrFail();
+        $meta1 = app(MetaAhorroService::class)->crear($user->id, 'Viaje', 100_000_00, null, 0, $origen->id);
+        $meta2 = app(MetaAhorroService::class)->crear($user->id, 'Emergencia', 200_000_00, null, 0, $origen->id);
+
+        $this->assertSame($origen->nombre.'_bolsillo1', $meta1->cuentaLiquida->nombre);
+        $this->assertSame($origen->nombre.'_bolsillo2', $meta2->cuentaLiquida->nombre);
+        $this->assertNotSame($meta1->cuenta_liquida_id, $meta2->cuenta_liquida_id);
     }
 }

@@ -9,7 +9,6 @@ use App\Models\User;
 use App\Services\SeguridadService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\View\View;
 
@@ -31,7 +30,11 @@ class AuthController extends Controller
             return back()->withErrors(['email' => "Demasiados intentos. Intenta de nuevo en {$seconds} segundos."])->onlyInput('email');
         }
 
-        if (! Auth::attempt($request->only('email', 'password'), $request->boolean('remember'))) {
+        $credenciales = [
+            'email' => mb_strtolower($request->input('email')),
+            'password' => $request->input('password'),
+        ];
+        if (! Auth::attempt($credenciales, $request->boolean('remember'))) {
             RateLimiter::hit($key, 60);
 
             return back()->withErrors(['email' => 'Las credenciales no son correctas.'])->onlyInput('email');
@@ -51,11 +54,13 @@ class AuthController extends Controller
 
     public function register(RegisterRequest $request): RedirectResponse
     {
-        $user = User::create([
-            'nombre' => $request->string('nombre')->toString(),
-            'email' => mb_strtolower($request->string('email')->toString()),
-            'password' => Hash::make($request->string('password')->toString()),
-        ]);
+        $user = \Illuminate\Support\Facades\DB::transaction(function () use ($request) {
+            return User::create([
+                'nombre' => $request->string('nombre')->toString(),
+                'email' => mb_strtolower($request->string('email')->toString()),
+                'password' => $request->string('password')->toString(),
+            ]);
+        });
 
         Auth::login($user);
         $request->session()->regenerate();

@@ -2,11 +2,22 @@
 
 namespace App\Http\Requests;
 
+use App\Http\Requests\Concerns\MensajesFormulario;
 use Illuminate\Foundation\Http\FormRequest;
 
 class CuentaLiquidaRequest extends FormRequest
 {
-    public function authorize(): bool { return true; }
+    use MensajesFormulario;
+
+    public function authorize(): bool
+    {
+        return true;
+    }
+
+    protected function camposMoneda(): array
+    {
+        return ['saldo_inicial'];
+    }
 
     public function rules(): array
     {

@@ -12,6 +12,7 @@ use App\Models\CuotaTarjeta;
 use App\Models\TarjetaCredito;
 use App\Services\TarjetaService;
 use App\Support\Dinero;
+use App\Support\ErrorDominio;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\View\View;
@@ -36,9 +37,15 @@ class TarjetaController extends Controller
     {
         $this->authorize('create', TarjetaCredito::class);
         $d = $request->validated();
-        $service->crear(Auth::id(), $d['nombre'], Dinero::pesosACentavos($d['cupo']), (int) $d['dia_corte'], (int) $d['dia_pago'], (float) $d['tasa']);
-        $tarjeta = TarjetaCredito::withoutGlobalScopes()->where('usuario_id', Auth::id())->latest('id')->firstOrFail();
-        $tarjeta->update(['entidad' => $d['entidad']]);
+        $tarjeta = $service->crear(
+            Auth::id(),
+            $d['nombre'],
+            Dinero::pesosACentavos($d['cupo']),
+            (int) $d['dia_corte'],
+            (int) $d['dia_pago'],
+            (float) $d['tasa'],
+            $d['entidad']
+        );
 
         return redirect()->route('app.tarjetas.index')->with('status', 'Tarjeta registrada correctamente.');
     }
@@ -51,7 +58,7 @@ class TarjetaController extends Controller
         try {
             $service->registrarCompra(Auth::id(), (int) $d['tarjeta_credito_id'], Dinero::pesosACentavos($d['monto']), (int) $d['cuotas'], $d['fecha'], (int) $d['categoria_id'], $d['descripcion'], (float) ($d['interes'] ?? 0));
         } catch (\InvalidArgumentException $e) {
-            return back()->withErrors(['monto' => $e->getMessage()])->withInput();
+            return back()->withErrors(ErrorDominio::aCampo($e, 'monto'), 'compra')->withInput();
         }
 
         return redirect()->route('app.tarjetas.index')->with('status', 'Compra financiada registrada con su cronograma.');
@@ -65,7 +72,7 @@ class TarjetaController extends Controller
         try {
             $service->registrarPago(Auth::id(), (int) $d['tarjeta_credito_id'], (int) $d['cuenta_liquida_id'], (int) $d['cuota_tarjeta_id'], $d['fecha']);
         } catch (\InvalidArgumentException $e) {
-            return back()->withErrors(['cuenta_liquida_id' => $e->getMessage()]);
+            return back()->withErrors(ErrorDominio::aCampo($e, 'cuenta_liquida_id'), 'pago_tarjeta')->withInput();
         }
 
         return redirect()->route('app.tarjetas.index')->with('status', 'Pago de cuota registrado.');

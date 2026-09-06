@@ -60,6 +60,9 @@ de crear hechos o asientos; las vistas solo muestran el resultado.
 25. Una meta de ahorro no es un gasto ni un ingreso: el avance = suma de hechos
     `aporte_meta` contabilizados (transferencia origen → bolsillo de la meta).
     `monto_actual_centavos` es caché derivada, no fuente de verdad editable.
+    Al crear la meta se elige una cuenta operativa de referencia y el sistema
+    crea siempre un bolsillo dedicado `{nombre}_bolsilloN`; nunca se reutiliza
+    la cuenta operativa como destino (evita etiquetar todo su saldo).
 26. Las alertas son reglas de dominio separadas de la interfaz y no modifican
     datos financieros.
 
@@ -74,3 +77,19 @@ de crear hechos o asientos; las vistas solo muestran el resultado.
     `seguridad_logs` vía `SeguridadService`.
 31. Las escrituras sensibles autorizan con policies (`ModeloUsuarioPolicy`)
     además del global scope.
+
+## Cuentas líquidas
+
+32. Archivar oculta la cuenta de la tesorería operativa (`activa=false`,
+    `estado=inactiva`) sin borrar el libro; se puede restaurar.
+33. Cancelar es permanente (`estado=cancelada`). Si hay saldo positivo, hay que
+    transferirlo a otra cuenta activa o registrarlo como cierre (inverso de
+    apertura: reduce liquidez y patrimonio). No se usa `UPDATE` ni se borra el
+    historial.
+34. No se cancela una cuenta que sea bolsillo de una meta no cancelada, ni la
+    cuenta de desembolso/pago de un préstamo con cuotas pendientes.
+35. El disponible parte de saldos de cuentas no canceladas (incluye archivadas
+    con saldo residual) **excluyendo** bolsillos de metas activas: ese dinero
+    está etiquetado y no es cash libre. Sigue restando cuotas, aportes
+    planificados a metas y gastos proyectados pendientes del horizonte.
+    `tengo` / saldo de cuentas sí incluye los bolsillos.

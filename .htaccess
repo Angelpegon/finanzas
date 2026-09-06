@@ -1,0 +1,21 @@
+# Fallback si el Document Root de Plesk apunta a la raíz del proyecto
+# (httpdocs) en lugar de /public. Preferible: Domains → Hosting Settings →
+# Document Root = .../httpdocs/public y entonces este archivo no se usa.
+#
+# Si puedes apuntar a /public, deja este archivo o bórralo; no hace daño
+# cuando el vhost ya entra por public/.
+
+<IfModule mod_authz_core.c>
+    <FilesMatch "(?i)^\.(env|git|gitignore|gitattributes|editorconfig)">
+        Require all denied
+    </FilesMatch>
+</IfModule>
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    # Bloquear rutas sensibles si el docroot es la raíz del repo
+    RewriteRule ^(app|bootstrap|config|database|docs|lang|node_modules|resources|routes|scripts|storage|tests|vendor)(/|$) - [F,L]
+
+    RewriteRule ^(.*)$ public/$1 [L]
+</IfModule>

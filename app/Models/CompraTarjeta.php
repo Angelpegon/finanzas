@@ -15,7 +15,7 @@ class CompraTarjeta extends Model
 
     public function cuotasProgramadas(): HasMany
     {
-        return $this->hasMany(CuotaTarjeta::class, 'compra_tarjeta_id');
+        return $this->hasMany(CuotaTarjeta::class, 'compra_tarjeta_id')->orderBy('numero');
     }
 
     public function tarjetaCredito(): \Illuminate\Database\Eloquent\Relations\BelongsTo

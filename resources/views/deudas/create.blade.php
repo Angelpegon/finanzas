@@ -1,17 +1,113 @@
-@extends('layouts.app', ['title' => 'Nueva obligación'])
+@extends('layouts.app', [
+    'title' => 'Nueva obligación',
+    'heading' => 'Registra lo que debes',
+    'subtitle' => 'El saldo y las cuotas se calcularán desde el calendario.',
+    'backUrl' => route('app.deudas.index'),
+    'backLabel' => 'Volver a deudas',
+])
 @section('content')
-<a href="{{ route('app.deudas.index') }}" class="back-link">‹ Volver a deudas</a><p class="eyebrow mt-4 mb-2">Nueva obligación</p><h1 class="display-title mb-1">Registra lo que debes</h1><p class="text-secondary mb-4">El saldo y las cuotas se calcularán desde el calendario.</p>
-<form method="POST" action="{{ route('app.deudas.store') }}" class="vstack gap-3">@csrf
-<div><label class="form-label">Nombre</label><input name="nombre" value="{{ old('nombre') }}" class="form-control form-control-lg" placeholder="Ej. Crédito de vehículo" required></div>
-<div><label class="form-label">Entidad</label><input name="entidad" value="{{ old('entidad') }}" class="form-control form-control-lg" placeholder="Banco, persona o comercio"></div>
-<div><label class="form-label">Tipo</label><select name="tipo_obligacion" class="form-select form-select-lg">@foreach(['prestamo_bancario'=>'Préstamo bancario','credito'=>'Crédito','tarjeta_credito'=>'Tarjeta de crédito','prestamo_personal'=>'Préstamo personal','compra_financiada'=>'Compra financiada','deuda_informal'=>'Deuda informal','otra_obligacion'=>'Otra obligación'] as $v=>$t)<option value="{{ $v }}">{{ $t }}</option>@endforeach</select></div>
-<div><label class="form-label">Monto inicial</label><input name="monto_inicial" value="{{ old('monto_inicial') }}" type="text" data-miles inputmode="decimal" class="form-control form-control-lg" placeholder="0" required></div>
-<div class="row g-3"><div class="col-7"><label class="form-label">Tasa de interés (%)</label><input name="tasa_interes" value="{{ old('tasa_interes', 0) }}" type="number" min="0" step="0.01" class="form-control form-control-lg" required></div><div class="col-5"><label class="form-label">Tipo</label><select name="tipo_tasa" class="form-select form-select-lg"><option value="ea">EA</option><option value="mensual">Mensual</option><option value="nominal">Nominal</option></select></div></div>
-<div><label class="form-label">Método de amortización</label><select name="metodo_amortizacion" class="form-select form-select-lg"><option value="frances">Francés · cuota estable</option><option value="lineal">Lineal · capital estable</option><option value="solo_interes">Solo interés · capital al final</option></select></div>
-<div class="row g-3"><div class="col-6"><label class="form-label">Seguro por cuota</label><input name="seguro" value="{{ old('seguro', 0) }}" type="text" data-miles inputmode="decimal" class="form-control form-control-lg"></div><div class="col-6"><label class="form-label">Otros cargos</label><input name="otros_cargos" value="{{ old('otros_cargos', 0) }}" type="text" data-miles inputmode="decimal" class="form-control form-control-lg"></div></div>
-<div class="row g-3"><div class="col-6"><label class="form-label">Fecha inicio</label><input name="fecha_inicio" type="date" value="{{ old('fecha_inicio', now()->toDateString()) }}" class="form-control form-control-lg" required></div><div class="col-6"><label class="form-label">Vencimiento</label><input name="fecha_vencimiento" type="date" value="{{ old('fecha_vencimiento') }}" class="form-control form-control-lg"></div></div>
-<div><label class="form-label">Cuota aproximada</label><input name="cuota" value="{{ old('cuota') }}" type="text" data-miles inputmode="decimal" class="form-control form-control-lg" placeholder="Se calcula automáticamente" required></div>
-<div class="row g-3"><div class="col-7"><label class="form-label">Periodicidad</label><select name="periodicidad" class="form-select form-select-lg"><option value="mensual">Mensual</option><option value="quincenal">Quincenal</option><option value="semanal">Semanal</option><option value="anual">Anual</option></select></div><div class="col-5"><label class="form-label">Cuotas</label><input name="numero_cuotas" value="{{ old('numero_cuotas', 12) }}" type="number" min="1" class="form-control form-control-lg" required></div></div>
-<div><label class="form-label">Cuenta para recibir el desembolso</label><select name="cuenta_liquida_id" class="form-select form-select-lg" required>@foreach($cuentas as $cuenta)<option value="{{ $cuenta->id }}">{{ $cuenta->nombre }}</option>@endforeach</select></div>
-<button class="btn btn-primary btn-lg w-100 rounded-4 py-3" type="submit">Guardar obligación</button></form>
+@include('layouts.partials.form-errors')
+<form method="POST" action="{{ route('app.deudas.store') }}" class="dash-card form-panel" novalidate>
+    @csrf
+    <div>
+        <label class="form-label" for="nombre">Nombre</label>
+        <input id="nombre" name="nombre" value="{{ old('nombre') }}" class="form-control form-control-lg @error('nombre') is-invalid @enderror" placeholder="Ej. Crédito de vehículo" required>
+        @include('layouts.partials.field-error', ['name' => 'nombre'])
+    </div>
+    <div>
+        <label class="form-label" for="entidad">Entidad</label>
+        <input id="entidad" name="entidad" value="{{ old('entidad') }}" class="form-control form-control-lg @error('entidad') is-invalid @enderror" placeholder="Banco, persona o comercio">
+        @include('layouts.partials.field-error', ['name' => 'entidad'])
+    </div>
+    <div>
+        <label class="form-label" for="tipo_obligacion">Tipo</label>
+        <select id="tipo_obligacion" name="tipo_obligacion" class="form-select form-select-lg @error('tipo_obligacion') is-invalid @enderror" required>
+            @foreach(['prestamo_bancario'=>'Préstamo bancario','credito'=>'Crédito','tarjeta_credito'=>'Tarjeta de crédito','prestamo_personal'=>'Préstamo personal','compra_financiada'=>'Compra financiada','deuda_informal'=>'Deuda informal','otra_obligacion'=>'Otra obligación'] as $v=>$t)
+                <option value="{{ $v }}" @selected(old('tipo_obligacion') === $v)>{{ $t }}</option>
+            @endforeach
+        </select>
+        @include('layouts.partials.field-error', ['name' => 'tipo_obligacion'])
+    </div>
+    <div>
+        <label class="form-label" for="monto_inicial">Monto inicial</label>
+        <input id="monto_inicial" name="monto_inicial" value="{{ old('monto_inicial') }}" type="text" data-miles inputmode="decimal" class="form-control form-control-lg @error('monto_inicial') is-invalid @enderror" placeholder="0" required>
+        @include('layouts.partials.field-error', ['name' => 'monto_inicial'])
+    </div>
+    <div class="row g-3">
+        <div class="col-7">
+            <label class="form-label" for="tasa_interes">Tasa de interés (%)</label>
+            <input id="tasa_interes" name="tasa_interes" value="{{ old('tasa_interes', 0) }}" type="number" min="0" step="0.01" class="form-control form-control-lg @error('tasa_interes') is-invalid @enderror" required>
+            @include('layouts.partials.field-error', ['name' => 'tasa_interes'])
+        </div>
+        <div class="col-5">
+            <label class="form-label" for="tipo_tasa">Tipo</label>
+            <select id="tipo_tasa" name="tipo_tasa" class="form-select form-select-lg @error('tipo_tasa') is-invalid @enderror" required>
+                @foreach(['ea'=>'EA','mensual'=>'Mensual','nominal'=>'Nominal'] as $v=>$t)
+                    <option value="{{ $v }}" @selected(old('tipo_tasa', 'ea') === $v)>{{ $t }}</option>
+                @endforeach
+            </select>
+            @include('layouts.partials.field-error', ['name' => 'tipo_tasa'])
+        </div>
+    </div>
+    <div>
+        <label class="form-label" for="metodo_amortizacion">Método de amortización</label>
+        <select id="metodo_amortizacion" name="metodo_amortizacion" class="form-select form-select-lg @error('metodo_amortizacion') is-invalid @enderror" required>
+            @foreach(['frances'=>'Francés · cuota estable','lineal'=>'Lineal · capital estable','solo_interes'=>'Solo interés · capital al final'] as $v=>$t)
+                <option value="{{ $v }}" @selected(old('metodo_amortizacion', 'frances') === $v)>{{ $t }}</option>
+            @endforeach
+        </select>
+        @include('layouts.partials.field-error', ['name' => 'metodo_amortizacion'])
+    </div>
+    <div class="row g-3">
+        <div class="col-6">
+            <label class="form-label" for="seguro">Seguro por cuota</label>
+            <input id="seguro" name="seguro" value="{{ old('seguro', 0) }}" type="text" data-miles inputmode="decimal" class="form-control form-control-lg @error('seguro') is-invalid @enderror">
+            @include('layouts.partials.field-error', ['name' => 'seguro'])
+        </div>
+        <div class="col-6">
+            <label class="form-label" for="otros_cargos">Otros cargos</label>
+            <input id="otros_cargos" name="otros_cargos" value="{{ old('otros_cargos', 0) }}" type="text" data-miles inputmode="decimal" class="form-control form-control-lg @error('otros_cargos') is-invalid @enderror">
+            @include('layouts.partials.field-error', ['name' => 'otros_cargos'])
+        </div>
+    </div>
+    <div class="row g-3">
+        <div class="col-6">
+            <label class="form-label" for="fecha_inicio">Fecha inicio</label>
+            <input id="fecha_inicio" name="fecha_inicio" type="date" value="{{ old('fecha_inicio', now()->toDateString()) }}" class="form-control form-control-lg @error('fecha_inicio') is-invalid @enderror" required>
+            @include('layouts.partials.field-error', ['name' => 'fecha_inicio'])
+        </div>
+        <div class="col-6">
+            <label class="form-label" for="fecha_vencimiento">Vencimiento</label>
+            <input id="fecha_vencimiento" name="fecha_vencimiento" type="date" value="{{ old('fecha_vencimiento') }}" class="form-control form-control-lg @error('fecha_vencimiento') is-invalid @enderror">
+            @include('layouts.partials.field-error', ['name' => 'fecha_vencimiento'])
+        </div>
+    </div>
+    <div class="row g-3">
+        <div class="col-7">
+            <label class="form-label" for="periodicidad">Periodicidad</label>
+            <select id="periodicidad" name="periodicidad" class="form-select form-select-lg @error('periodicidad') is-invalid @enderror" required>
+                @foreach(['mensual'=>'Mensual','quincenal'=>'Quincenal','semanal'=>'Semanal','anual'=>'Anual'] as $v=>$t)
+                    <option value="{{ $v }}" @selected(old('periodicidad', 'mensual') === $v)>{{ $t }}</option>
+                @endforeach
+            </select>
+            @include('layouts.partials.field-error', ['name' => 'periodicidad'])
+        </div>
+        <div class="col-5">
+            <label class="form-label" for="numero_cuotas">Cuotas</label>
+            <input id="numero_cuotas" name="numero_cuotas" value="{{ old('numero_cuotas', 12) }}" type="number" min="1" class="form-control form-control-lg @error('numero_cuotas') is-invalid @enderror" required>
+            @include('layouts.partials.field-error', ['name' => 'numero_cuotas'])
+        </div>
+    </div>
+    <div>
+        <label class="form-label" for="cuenta_liquida_id">Cuenta para recibir el desembolso</label>
+        <select id="cuenta_liquida_id" name="cuenta_liquida_id" class="form-select form-select-lg @error('cuenta_liquida_id') is-invalid @enderror" required>
+            <option value="">Selecciona una cuenta</option>
+            @foreach($cuentas as $cuenta)
+                <option value="{{ $cuenta->id }}" @selected(old('cuenta_liquida_id') == $cuenta->id)>{{ $cuenta->nombre }}</option>
+            @endforeach
+        </select>
+        @include('layouts.partials.field-error', ['name' => 'cuenta_liquida_id'])
+    </div>
+    <button class="btn btn-primary btn-lg w-100 rounded-4 py-3" type="submit">Guardar obligación</button>
+</form>
 @endsection

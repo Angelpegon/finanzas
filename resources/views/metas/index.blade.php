@@ -1,26 +1,141 @@
-@extends('layouts.app', ['title' => 'Metas de ahorro'])
+@extends('layouts.app', [
+    'title' => 'Metas de ahorro',
+    'heading' => 'Mis metas',
+    'subtitle' => 'El avance solo crece con aportes contabilizados al bolsillo de la meta.',
+])
 @section('content')
-<p class="eyebrow mb-2">Ahorro con propósito</p>
-<h1 class="display-title mb-1">Mis metas</h1>
-<p class="text-secondary mb-4">El avance solo crece con aportes contabilizados al bolsillo de la meta.</p>
-@if (session('status'))<div class="alert alert-success">{{ session('status') }}</div>@endif
-@if ($errors->any())<div class="alert alert-danger">{{ $errors->first() }}</div>@endif
-<form method="POST" action="{{ route('app.metas.store') }}" class="card border-0 shadow-sm rounded-4 p-3 mb-4 vstack gap-3">@csrf
-    <input name="nombre" class="form-control form-control-lg" placeholder="Nombre de la meta" required>
-    <div class="row g-3"><div class="col-6"><label class="form-label">Objetivo</label><input name="objetivo" data-miles inputmode="decimal" class="form-control" required></div><div class="col-6"><label class="form-label">Ahorro mensual planificado</label><input name="aporte_mensual" data-miles inputmode="decimal" class="form-control" value="0"></div></div>
-    <div class="row g-3"><div class="col-6"><label class="form-label">Fecha objetivo</label><input name="fecha_objetivo" type="date" class="form-control"></div><div class="col-6"><label class="form-label">Bolsillo (cuenta destino)</label><select name="cuenta_liquida_id" class="form-select" required><option value="">Selecciona cuenta</option>@foreach($cuentas as $cuenta)<option value="{{ $cuenta->id }}">{{ $cuenta->nombre }}</option>@endforeach</select></div></div>
-    <div class="row g-3"><div class="col-6"><label class="form-label">Prioridad</label><select name="prioridad" class="form-select"><option value="alta">Alta</option><option value="media" selected>Media</option><option value="baja">Baja</option></select></div><div class="col-6"><label class="form-label">Estado</label><select name="estado" class="form-select"><option value="activa">Activa</option><option value="pausada">Pausada</option><option value="cumplida">Cumplida</option><option value="cancelada">Cancelada</option></select></div></div>
+@php
+    $errMeta = $errors->meta;
+    $errAporte = $errors->aporte;
+    $oldMeta = $errMeta->any();
+    $oldAporte = $errAporte->any();
+@endphp
+<form method="POST" action="{{ route('app.metas.store') }}" class="dash-card form-panel" novalidate>
+    @csrf
+    @include('layouts.partials.form-errors', ['bag' => 'meta'])
+    <div>
+        <label class="form-label" for="nombre">Nombre de la meta</label>
+        <input id="nombre" name="nombre" value="{{ $oldMeta ? old('nombre') : '' }}" class="form-control form-control-lg @error('nombre', 'meta') is-invalid @enderror" placeholder="Nombre de la meta" required>
+        @include('layouts.partials.field-error', ['name' => 'nombre', 'bag' => 'meta'])
+    </div>
+    <div class="row g-3">
+        <div class="col-6">
+            <label class="form-label" for="objetivo">Objetivo</label>
+            <input id="objetivo" name="objetivo" data-miles inputmode="decimal" value="{{ $oldMeta ? old('objetivo') : '' }}" class="form-control @error('objetivo', 'meta') is-invalid @enderror" required>
+            @include('layouts.partials.field-error', ['name' => 'objetivo', 'bag' => 'meta'])
+        </div>
+        <div class="col-6">
+            <label class="form-label" for="aporte_mensual">Ahorro mensual planificado</label>
+            <input id="aporte_mensual" name="aporte_mensual" data-miles inputmode="decimal" value="{{ $oldMeta ? old('aporte_mensual', 0) : 0 }}" class="form-control @error('aporte_mensual', 'meta') is-invalid @enderror">
+            @include('layouts.partials.field-error', ['name' => 'aporte_mensual', 'bag' => 'meta'])
+        </div>
+    </div>
+    <div class="row g-3">
+        <div class="col-6">
+            <label class="form-label" for="fecha_objetivo">Fecha objetivo</label>
+            <input id="fecha_objetivo" name="fecha_objetivo" type="date" value="{{ $oldMeta ? old('fecha_objetivo') : '' }}" class="form-control @error('fecha_objetivo', 'meta') is-invalid @enderror">
+            @include('layouts.partials.field-error', ['name' => 'fecha_objetivo', 'bag' => 'meta'])
+        </div>
+        <div class="col-6">
+            <label class="form-label" for="cuenta_liquida_id">Cuenta de referencia</label>
+            <select id="cuenta_liquida_id" name="cuenta_liquida_id" class="form-select @error('cuenta_liquida_id', 'meta') is-invalid @enderror" required>
+                <option value="">Selecciona cuenta</option>
+                @foreach($cuentasOperativas as $cuenta)
+                    <option value="{{ $cuenta->id }}" @selected($oldMeta && old('cuenta_liquida_id') == $cuenta->id)>{{ $cuenta->nombre }}</option>
+                @endforeach
+            </select>
+            <small class="text-secondary">Se crea un bolsillo dedicado <code>{nombre}_bolsilloN</code>; no se usa la cuenta operativa como destino.</small>
+            @include('layouts.partials.field-error', ['name' => 'cuenta_liquida_id', 'bag' => 'meta'])
+        </div>
+    </div>
+    <div class="row g-3">
+        <div class="col-6">
+            <label class="form-label" for="prioridad">Prioridad</label>
+            <select id="prioridad" name="prioridad" class="form-select @error('prioridad', 'meta') is-invalid @enderror" required>
+                @foreach(['alta'=>'Alta','media'=>'Media','baja'=>'Baja'] as $v=>$t)
+                    <option value="{{ $v }}" @selected(($oldMeta ? old('prioridad', 'media') : 'media') === $v)>{{ $t }}</option>
+                @endforeach
+            </select>
+            @include('layouts.partials.field-error', ['name' => 'prioridad', 'bag' => 'meta'])
+        </div>
+        <div class="col-6">
+            <label class="form-label" for="estado">Estado</label>
+            <select id="estado" name="estado" class="form-select @error('estado', 'meta') is-invalid @enderror" required>
+                @foreach(['activa'=>'Activa','pausada'=>'Pausada','cumplida'=>'Cumplida','cancelada'=>'Cancelada'] as $v=>$t)
+                    <option value="{{ $v }}" @selected(($oldMeta ? old('estado', 'activa') : 'activa') === $v)>{{ $t }}</option>
+                @endforeach
+            </select>
+            @include('layouts.partials.field-error', ['name' => 'estado', 'bag' => 'meta'])
+        </div>
+    </div>
     <button class="btn btn-primary btn-lg rounded-4" type="submit">Crear meta</button>
 </form>
-@if($metas->isNotEmpty() && $cuentas->count() > 1)
-<form method="POST" action="{{ route('app.metas.aportes.store') }}" class="card border-0 shadow-sm rounded-4 p-3 mb-4 vstack gap-3">@csrf
+
+@if($metas->isNotEmpty() && $cuentasOperativas->isNotEmpty())
+<form method="POST" action="{{ route('app.metas.aportes.store') }}" class="dash-card form-panel" novalidate>
+    @csrf
     <h2 class="h5 mb-0">Registrar aporte</h2>
-    <select name="meta_ahorro_id" class="form-select" required><option value="">Meta</option>@foreach($metas->where('estado', '!=', 'cancelada') as $meta)<option value="{{ $meta->id }}">{{ $meta->nombre }}</option>@endforeach</select>
-    <select name="cuenta_liquida_id" class="form-select" required><option value="">Sale de</option>@foreach($cuentas as $cuenta)<option value="{{ $cuenta->id }}">{{ $cuenta->nombre }}</option>@endforeach</select>
-    <input name="monto" data-miles inputmode="decimal" class="form-control" placeholder="Monto" required>
-    <input name="fecha" type="date" value="{{ now()->toDateString() }}" class="form-control" required>
+    @include('layouts.partials.form-errors', ['bag' => 'aporte'])
+    <div>
+        <label class="form-label" for="meta_ahorro_id">Meta</label>
+        <select id="meta_ahorro_id" name="meta_ahorro_id" class="form-select @error('meta_ahorro_id', 'aporte') is-invalid @enderror" required>
+            <option value="">Meta</option>
+            @foreach($metas->where('estado', '!=', 'cancelada') as $meta)
+                <option value="{{ $meta->id }}" @selected($oldAporte && old('meta_ahorro_id') == $meta->id)>{{ $meta->nombre }}</option>
+            @endforeach
+        </select>
+        @include('layouts.partials.field-error', ['name' => 'meta_ahorro_id', 'bag' => 'aporte'])
+    </div>
+    <div>
+        <label class="form-label" for="cuenta_origen_aporte">Sale de</label>
+        <select id="cuenta_origen_aporte" name="cuenta_liquida_id" class="form-select @error('cuenta_liquida_id', 'aporte') is-invalid @enderror" required>
+            <option value="">Sale de</option>
+            @foreach($cuentasOperativas as $cuenta)
+                <option value="{{ $cuenta->id }}" @selected($oldAporte && old('cuenta_liquida_id') == $cuenta->id)>{{ $cuenta->nombre }}</option>
+            @endforeach
+        </select>
+        @include('layouts.partials.field-error', ['name' => 'cuenta_liquida_id', 'bag' => 'aporte'])
+    </div>
+    <div>
+        <label class="form-label" for="monto_aporte">Monto</label>
+        <input id="monto_aporte" name="monto" data-miles inputmode="decimal" value="{{ $oldAporte ? old('monto') : '' }}" class="form-control @error('monto', 'aporte') is-invalid @enderror" placeholder="Monto" required>
+        @include('layouts.partials.field-error', ['name' => 'monto', 'bag' => 'aporte'])
+    </div>
+    <div>
+        <label class="form-label" for="fecha_aporte">Fecha</label>
+        <input id="fecha_aporte" name="fecha" type="date" value="{{ $oldAporte ? old('fecha', now()->toDateString()) : now()->toDateString() }}" class="form-control @error('fecha', 'aporte') is-invalid @enderror" required>
+        @include('layouts.partials.field-error', ['name' => 'fecha', 'bag' => 'aporte'])
+    </div>
     <button class="btn btn-outline-primary rounded-4" type="submit">Contabilizar aporte</button>
 </form>
+@elseif($metas->isNotEmpty())
+<div class="alert alert-light">
+    Para aportar necesitas una cuenta operativa (no bolsillo) con saldo.
+    <a href="{{ route('app.cuentas.create') }}">Crear cuenta</a>.
+</div>
 @endif
-<div class="vstack gap-3">@forelse($metas as $meta)<article class="account-card"><div class="account-card__icon">★</div><div class="account-card__body"><div class="d-flex justify-content-between"><div><h2>{{ $meta->nombre }}</h2><small>{{ ucfirst($meta->prioridad) }} · {{ ucfirst($meta->estado) }} @if($meta->cuentaLiquida) · {{ $meta->cuentaLiquida->nombre }} @endif</small></div><strong>{{ $meta->porcentaje_completado }}%</strong></div><div class="progress mt-3" style="height:8px"><div class="progress-bar" style="width: {{ min(100, $meta->porcentaje_completado) }}%"></div></div><div class="small text-secondary mt-2">Avance @cop($meta->progreso_centavos) de @cop($meta->objetivo_centavos) · Plan/mes: @cop($meta->aporte_mensual_centavos)</div><div class="small text-secondary">Cumplimiento estimado: {{ $meta->fecha_estimada_cumplimiento ? \Carbon\Carbon::parse($meta->fecha_estimada_cumplimiento)->format('d/m/Y') : 'sin fecha (define un ahorro mensual)' }}</div></div></article>@empty<div class="alert alert-light">Aún no tienes metas de ahorro.</div>@endforelse</div>
+
+<div class="card-stack">
+@forelse($metas as $meta)
+<article class="account-card">
+    <div class="account-card__main">
+        <div class="account-card__icon">@include('layouts.partials.icon', ['name' => 'piggy-bank', 'class' => 'ui-icon ui-icon--sm'])</div>
+        <div class="account-card__body">
+            <div class="account-card__head">
+                <div class="account-card__title">
+                    <h2>{{ $meta->nombre }}</h2>
+                    <small>{{ ucfirst($meta->prioridad) }} · {{ ucfirst($meta->estado) }}@if($meta->cuentaLiquida) · {{ $meta->cuentaLiquida->nombre }}@endif</small>
+                </div>
+                <strong class="account-card__amount">{{ $meta->porcentaje_completado }}%</strong>
+            </div>
+            <div class="progress progress--thin mt-3"><div class="progress-bar" style="width: {{ min(100, $meta->porcentaje_completado) }}%"></div></div>
+            <div class="small text-secondary mt-2">Avance @cop($meta->progreso_centavos) de @cop($meta->objetivo_centavos) · Plan/mes: @cop($meta->aporte_mensual_centavos)</div>
+            <div class="small text-secondary">Cumplimiento estimado: {{ $meta->fecha_estimada_cumplimiento ? \Carbon\Carbon::parse($meta->fecha_estimada_cumplimiento)->format('d/m/Y') : 'sin fecha (define un ahorro mensual)' }}</div>
+        </div>
+    </div>
+</article>
+@empty
+    <div class="alert alert-light">Aún no tienes metas de ahorro.</div>
+@endforelse
+</div>
 @endsection

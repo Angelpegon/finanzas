@@ -9,6 +9,7 @@ use App\Models\TarjetaCredito;
 use App\Models\CuentaLiquida;
 use App\Services\PrestamoService;
 use App\Support\Dinero;
+use App\Support\ErrorDominio;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\View\View;
@@ -42,7 +43,7 @@ class DeudaController extends Controller
                 $d['metodo_amortizacion'], Dinero::pesosACentavos($d['seguro'] ?? 0), Dinero::pesosACentavos($d['otros_cargos'] ?? 0)
             );
         } catch (\InvalidArgumentException $e) {
-            return back()->withErrors(['monto_inicial' => $e->getMessage()])->withInput();
+            return back()->withErrors(ErrorDominio::aCampo($e, 'monto_inicial'))->withInput();
         }
 
         return redirect()->route('app.deudas.index')->with('status', 'Obligación registrada correctamente.');
@@ -61,7 +62,13 @@ class DeudaController extends Controller
                 $d['fecha']
             );
         } catch (\InvalidArgumentException $e) {
-            return back()->withErrors(['monto' => $e->getMessage()]);
+            $errores = ErrorDominio::aCampo($e, 'monto');
+            // El formulario de pago no elige cuenta: sale del préstamo.
+            if (isset($errores['cuenta_liquida_id'])) {
+                $errores = ['form' => $errores['cuenta_liquida_id']];
+            }
+
+            return back()->withErrors($errores, 'pago_prestamo')->withInput();
         }
 
         return redirect()->route('app.deudas.index')->with('status', 'Pago de préstamo registrado.');

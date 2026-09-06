@@ -35,4 +35,9 @@ class HechoTesoreria extends Model
     {
         return $this->belongsTo(CuentaLiquida::class, 'cuenta_destino_id');
     }
+
+    public function categoria(): \Illuminate\Database\Eloquent\Relations\BelongsTo
+    {
+        return $this->belongsTo(Categoria::class, 'categoria_id');
+    }
 }

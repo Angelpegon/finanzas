@@ -44,18 +44,18 @@ class PrestamoService
             $tipoTasa, $periodicidad, $fechaVencimiento, $metodoAmortizacion, $seguroCentavos, $otrosCargosCentavos
         ): Prestamo {
             $liquida = CuentaLiquida::withoutGlobalScopes()
-                ->where('usuario_id', $usuarioId)->findOrFail($cuentaLiquidaId);
+                ->where('usuario_id', $usuarioId)->where('activa', true)->lockForUpdate()->findOrFail($cuentaLiquidaId);
             $pasivo = CuentaContable::withoutGlobalScopes()->create([
                 'usuario_id' => $usuarioId,
                 'codigo' => $this->siguienteCodigoPasivo($usuarioId),
                 'nombre' => 'Préstamo - '.$nombre,
                 'naturaleza' => 'pasivo',
             ]);
-            $tasa = Tasa::mensualDesdeEA($eaPorcentaje);
-            $primeraFecha = $this->primeraFechaPago(Carbon::parse($fechaDesembolso), $diaPago);
+            $tasa = Tasa::tasaPeriodo($eaPorcentaje, $tipoTasa, $periodicidad);
+            $primeraFecha = $this->primeraFechaPago(Carbon::parse($fechaDesembolso), $diaPago, $periodicidad);
             $calendario = AmortizacionFrancesa::calendarioMetodo(
                 $principalCentavos, $tasa, $plazoMeses, $primeraFecha,
-                $metodoAmortizacion, $seguroCentavos, $otrosCargosCentavos
+                $metodoAmortizacion, $seguroCentavos, $otrosCargosCentavos, $periodicidad
             );
             $prestamo = Prestamo::withoutGlobalScopes()->create([
                 'usuario_id' => $usuarioId, 'cuenta_contable_id' => $pasivo->id,
@@ -93,11 +93,11 @@ class PrestamoService
         }
 
         return DB::transaction(function () use ($usuarioId, $prestamoId, $montoCentavos, $fecha): Pago {
-            $prestamo = Prestamo::withoutGlobalScopes()->where('usuario_id', $usuarioId)->findOrFail($prestamoId);
-            $liquida = CuentaLiquida::withoutGlobalScopes()->where('usuario_id', $usuarioId)->findOrFail($prestamo->cuenta_liquida_id);
+            $prestamo = Prestamo::withoutGlobalScopes()->where('usuario_id', $usuarioId)->lockForUpdate()->findOrFail($prestamoId);
+            $liquida = CuentaLiquida::withoutGlobalScopes()->where('usuario_id', $usuarioId)->where('activa', true)->lockForUpdate()->findOrFail($prestamo->cuenta_liquida_id);
             $cuota = CuotaPrestamo::withoutGlobalScopes()
                 ->where('usuario_id', $usuarioId)->where('prestamo_id', $prestamo->id)
-                ->where('pagada', false)->orderBy('numero')->first();
+                ->where('pagada', false)->orderBy('numero')->lockForUpdate()->first();
             if (! $cuota) {
                 throw new \InvalidArgumentException('El préstamo no tiene cuotas pendientes.');
             }
@@ -108,7 +108,18 @@ class PrestamoService
             $capital = (int) $cuota->capital_centavos;
             $interes = (int) $cuota->interes_centavos;
             $cargos = (int) $cuota->seguro_centavos + (int) $cuota->otros_cargos_centavos;
-            $extra = $montoCentavos - $totalCuota;
+            $capitalPendiente = (int) CuotaPrestamo::withoutGlobalScopes()
+                ->where('usuario_id', $usuarioId)->where('prestamo_id', $prestamo->id)
+                ->where('pagada', false)->sum('capital_centavos');
+            $extraMaximo = max(0, $capitalPendiente - $capital);
+            $extraSolicitado = $montoCentavos - $totalCuota;
+            if ($extraSolicitado > $extraMaximo) {
+                throw new \InvalidArgumentException('El abono extra supera el capital pendiente.');
+            }
+            $extra = $extraSolicitado;
+            if ($liquida->saldoCentavos() < $montoCentavos) {
+                throw new \InvalidArgumentException('Saldo insuficiente en la cuenta de pago.');
+            }
             $pago = Pago::withoutGlobalScopes()->create([
                 'usuario_id' => $usuarioId, 'tipo' => 'prestamo', 'prestamo_id' => $prestamo->id,
                 'cuenta_liquida_id' => $liquida->id, 'fecha' => $fecha, 'monto_centavos' => $montoCentavos,
@@ -118,12 +129,18 @@ class PrestamoService
                     ? 'Pago de cuota '.$cuota->numero.' + abono extraordinario'
                     : 'Pago de cuota '.$cuota->numero,
             ]);
-            $gastoId = CuentaContable::withoutGlobalScopes()->where('usuario_id', $usuarioId)->where('codigo', '5200')->firstOrFail()->id;
+            $gastoInteresId = CuentaContable::withoutGlobalScopes()->where('usuario_id', $usuarioId)->where('codigo', '5200')->firstOrFail()->id;
+            $gastoOperativoId = CuentaContable::withoutGlobalScopes()->where('usuario_id', $usuarioId)->where('codigo', '5100')->firstOrFail()->id;
             $movimientos = [
                 ['cuenta_contable_id' => $prestamo->cuenta_contable_id, 'debe_centavos' => $capital + $extra, 'haber_centavos' => 0],
-                ['cuenta_contable_id' => $gastoId, 'debe_centavos' => $interes + $cargos, 'haber_centavos' => 0],
                 ['cuenta_contable_id' => $liquida->cuenta_contable_id, 'debe_centavos' => 0, 'haber_centavos' => $montoCentavos],
             ];
+            if ($interes > 0) {
+                $movimientos[] = ['cuenta_contable_id' => $gastoInteresId, 'debe_centavos' => $interes, 'haber_centavos' => 0];
+            }
+            if ($cargos > 0) {
+                $movimientos[] = ['cuenta_contable_id' => $gastoOperativoId, 'debe_centavos' => $cargos, 'haber_centavos' => 0];
+            }
             $this->contabilizacion->postear($usuarioId, $fecha, 'Pago de préstamo '.$prestamo->nombre, Pago::class, $pago->id, $movimientos);
             $cuota->update(['pagada' => true, 'pagada_en' => now()]);
             if ($extra > 0) {
@@ -162,18 +179,25 @@ class PrestamoService
             return;
         }
 
-        $tasa = Tasa::mensualDesdeEA((float) $prestamo->ea_porcentaje);
+        $tasa = Tasa::tasaPeriodo((float) $prestamo->ea_porcentaje, (string) ($prestamo->tipo_tasa ?: 'ea'), (string) ($prestamo->periodicidad ?: 'mensual'));
+        $periodicidad = (string) ($prestamo->periodicidad ?: 'mensual');
+        $metodo = $prestamo->metodo_amortizacion ?: 'frances';
         $cuotaFija = (int) $prestamo->cuota_centavos;
-        $plazos = AmortizacionFrancesa::plazosConCuotaFija($saldoRestante, $tasa, $cuotaFija);
-        $primera = $this->primeraFechaPago($fechaPago, (int) $prestamo->dia_pago);
+        if ($metodo === 'frances') {
+            $plazos = AmortizacionFrancesa::plazosConCuotaFija($saldoRestante, $tasa, $cuotaFija);
+        } else {
+            $plazos = max(1, $pendientes->count());
+        }
+        $primera = $this->primeraFechaPago($fechaPago, (int) $prestamo->dia_pago, $periodicidad);
         $calendario = AmortizacionFrancesa::calendarioMetodo(
             $saldoRestante,
             $tasa,
             $plazos,
             $primera,
-            $prestamo->metodo_amortizacion ?: 'frances',
+            $metodo,
             (int) $prestamo->seguro_centavos,
-            (int) $prestamo->otros_cargos_centavos
+            (int) $prestamo->otros_cargos_centavos,
+            $periodicidad
         );
         $numeroBase = (int) CuotaPrestamo::withoutGlobalScopes()
             ->where('prestamo_id', $prestamo->id)->max('numero');
@@ -210,11 +234,15 @@ class PrestamoService
         return '21'.str_pad((string) $n, 6, '0', STR_PAD_LEFT);
     }
 
-    private function primeraFechaPago(Carbon $desembolso, int $diaPago): Carbon
+    private function primeraFechaPago(Carbon $desembolso, int $diaPago, string $periodicidad = 'mensual'): Carbon
     {
-        $base = $desembolso->copy()->startOfMonth()->addMonth();
-        $dia = min($diaPago, $base->daysInMonth);
-
-        return $base->day($dia);
+        return match ($periodicidad) {
+            'semanal' => $desembolso->copy()->addWeek(),
+            'quincenal' => $desembolso->copy()->addDays(15),
+            'anual' => $desembolso->copy()->addYear()->day(min($diaPago, $desembolso->copy()->addYear()->daysInMonth)),
+            default => tap($desembolso->copy()->startOfMonth()->addMonth(), function (Carbon $base) use ($diaPago): void {
+                $base->day(min($diaPago, $base->daysInMonth));
+            }),
+        };
     }
 }

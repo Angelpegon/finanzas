@@ -17,7 +17,7 @@ class Prestamo extends Model
 
     public function cuotas(): HasMany
     {
-        return $this->hasMany(CuotaPrestamo::class, 'prestamo_id');
+        return $this->hasMany(CuotaPrestamo::class, 'prestamo_id')->orderBy('numero');
     }
 
     public function getSaldoActualCentavosAttribute(): int

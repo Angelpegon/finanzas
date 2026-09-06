@@ -25,6 +25,10 @@ php artisan serve
 
 Tests: `php vendor/bin/phpunit` (SQLite en memoria).
 
+## Despliegue (Plesk)
+
+Ver `docs/despliegue-plesk.md`. Resumen: Document Root → `public/`, `.env` de producción, `bash scripts/deploy-plesk.sh`. Empaquetado local: `bash scripts/empaquetar-release.sh`.
+
 ## Dónde tocar código
 
 | Área | Ubicación |

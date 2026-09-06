@@ -2,14 +2,24 @@
 
 namespace App\Http\Requests;
 
+use App\Http\Requests\Concerns\MensajesFormulario;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
 class MetaAhorroRequest extends FormRequest
 {
+    use MensajesFormulario;
+
+    protected $errorBag = 'meta';
+
     public function authorize(): bool
     {
         return $this->user() !== null;
+    }
+
+    protected function camposMoneda(): array
+    {
+        return ['objetivo', 'aporte_mensual'];
     }
 
     public function rules(): array
@@ -26,6 +36,13 @@ class MetaAhorroRequest extends FormRequest
             ],
             'prioridad' => ['required', Rule::in(['alta', 'media', 'baja'])],
             'estado' => ['required', Rule::in(['activa', 'cumplida', 'pausada', 'cancelada'])],
+        ];
+    }
+
+    protected function atributosExtra(): array
+    {
+        return [
+            'cuenta_liquida_id' => 'cuenta de referencia',
         ];
     }
 }

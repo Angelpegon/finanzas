@@ -1,3 +1,10 @@
+<IfModule mod_headers.c>
+    <FilesMatch "^(sw\.js)$">
+        Header set Cache-Control "no-cache"
+        Header set Service-Worker-Allowed "/"
+    </FilesMatch>
+</IfModule>
+
 <IfModule mod_rewrite.c>
     <IfModule mod_negotiation.c>
         Options -MultiViews -Indexes
@@ -18,11 +25,4 @@
     RewriteCond %{REQUEST_FILENAME} !-d
     RewriteCond %{REQUEST_FILENAME} !-f
     RewriteRule ^ index.php [L]
-</IfModule>
-
-<IfModule mod_php.c>
-    php_value upload_max_filesize 1024M
-    php_value post_max_size 1024M
-    php_value max_execution_time 600
-    php_value memory_limit 512M
 </IfModule>

@@ -44,7 +44,7 @@ class TesoreriaService
             $categoriaId, $cuentaDestinoId, $descripcion, $tipoGasto, $metaAhorroId
         ): HechoTesoreria {
             $cuenta = $cuentaLiquidaId
-                ? CuentaLiquida::withoutGlobalScopes()->where('usuario_id', $usuarioId)->where('activa', true)->findOrFail($cuentaLiquidaId)
+                ? CuentaLiquida::withoutGlobalScopes()->where('usuario_id', $usuarioId)->where('activa', true)->lockForUpdate()->findOrFail($cuentaLiquidaId)
                 : null;
             $categoria = $categoriaId
                 ? Categoria::withoutGlobalScopes()->where('usuario_id', $usuarioId)->findOrFail($categoriaId)
@@ -54,6 +54,17 @@ class TesoreriaService
             }
             if ($categoria && $tipo === TipoHechoTesoreria::Gasto && $categoria->tipo !== 'gasto') {
                 throw new \InvalidArgumentException('La categoría no corresponde a un gasto.');
+            }
+            if ($tipo === TipoHechoTesoreria::Gasto && $cuenta && $cuenta->saldoCentavos() < $montoCentavos) {
+                throw new \InvalidArgumentException('Saldo insuficiente en la cuenta de pago.');
+            }
+            if ($tipo === TipoHechoTesoreria::Cierre) {
+                if ($cuentaLiquidaId === null) {
+                    throw new \InvalidArgumentException('El cierre requiere una cuenta de origen.');
+                }
+                if ($cuenta && $cuenta->saldoCentavos() < $montoCentavos) {
+                    throw new \InvalidArgumentException('Saldo insuficiente en la cuenta de origen.');
+                }
             }
 
             $movimientos = match ($tipo) {
@@ -69,6 +80,10 @@ class TesoreriaService
                 TipoHechoTesoreria::Apertura => [
                     ['cuenta_contable_id' => $cuenta?->cuenta_contable_id, 'debe_centavos' => $montoCentavos, 'haber_centavos' => 0],
                     ['cuenta_contable_id' => $this->cuentaPatrimonio($usuarioId), 'debe_centavos' => 0, 'haber_centavos' => $montoCentavos],
+                ],
+                TipoHechoTesoreria::Cierre => [
+                    ['cuenta_contable_id' => $this->cuentaPatrimonio($usuarioId), 'debe_centavos' => $montoCentavos, 'haber_centavos' => 0],
+                    ['cuenta_contable_id' => $cuenta?->cuenta_contable_id, 'debe_centavos' => 0, 'haber_centavos' => $montoCentavos],
                 ],
             };
 
@@ -100,7 +115,7 @@ class TesoreriaService
     private function movimientosTransferencia(int $usuarioId, ?CuentaLiquida $origen, ?int $destinoId, int $monto): array
     {
         $destino = CuentaLiquida::withoutGlobalScopes()
-            ->where('usuario_id', $usuarioId)->where('activa', true)->findOrFail($destinoId);
+            ->where('usuario_id', $usuarioId)->where('activa', true)->lockForUpdate()->findOrFail($destinoId);
         if ($origen === null) {
             throw new \InvalidArgumentException('La cuenta de origen es obligatoria.');
         }

@@ -2,8 +2,8 @@
 
 namespace App\Http\Controllers;
 
-use App\Services\SituacionFinancieraService;
 use App\Services\AlertaService;
+use App\Services\SituacionFinancieraService;
 use Illuminate\Support\Facades\Auth;
 
 class SituacionController extends Controller
@@ -15,9 +15,13 @@ class SituacionController extends Controller
 
     public function __invoke()
     {
-        $datos = $this->situacion->responder(Auth::id());
-        $datos['alertas'] = $this->alertas->evaluar(Auth::id(), $datos);
+        $datos = $this->situacion->responder(Auth::id(), null, true);
+        $alertas = $this->alertas->evaluar(Auth::id(), $datos);
+        $datos['alertas'] = $alertas;
 
-        return view('situacion', ['situacion' => $datos]);
+        return view('situacion', [
+            'situacion' => $datos,
+            'alertas' => $alertas,
+        ]);
     }
 }

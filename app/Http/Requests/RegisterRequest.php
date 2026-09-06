@@ -2,11 +2,14 @@
 
 namespace App\Http\Requests;
 
+use App\Http\Requests\Concerns\MensajesFormulario;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rules\Password;
 
 class RegisterRequest extends FormRequest
 {
+    use MensajesFormulario;
+
     public function authorize(): bool
     {
         return true;
@@ -18,6 +21,15 @@ class RegisterRequest extends FormRequest
             'nombre' => ['required', 'string', 'max:120'],
             'email' => ['required', 'string', 'email', 'max:255', 'unique:users,email'],
             'password' => ['required', 'confirmed', Password::min(8)],
+        ];
+    }
+
+    protected function mensajesExtra(): array
+    {
+        return [
+            'nombre.required' => 'Indica tu nombre.',
+            'email.required' => 'Indica tu correo electrónico.',
+            'password.required' => 'Elige una contraseña.',
         ];
     }
 }

@@ -1,16 +1,95 @@
-@extends('layouts.app', ['title' => 'Cuentas'])
+@extends('layouts.app', [
+    'title' => 'Cuentas',
+    'heading' => 'Mis cuentas',
+    'subtitle' => 'Tu dinero, en un solo lugar.',
+    'actionUrl' => route('app.cuentas.create'),
+    'actionLabel' => 'Nueva cuenta',
+])
 @section('content')
-<div class="page-intro d-flex justify-content-between align-items-center mb-4">
-    <div><p class="eyebrow mb-2">Patrimonio</p><h1 class="display-title mb-1">Mis cuentas</h1><p class="text-secondary mb-0">Tu dinero, en un solo lugar.</p></div>
-    <a class="add-button" href="{{ route('app.cuentas.create') }}">+</a>
-</div>
-@if (session('status'))<div class="alert alert-success">{{ session('status') }}</div>@endif
-<div class="vstack gap-3">
+@include('layouts.partials.form-errors')
+@php
+    $destinosActivos = $cuentas;
+@endphp
+
+<h2 class="h5 mb-3">Activas</h2>
+<div class="card-stack mb-4">
 @forelse ($cuentas as $cuenta)
-<article class="account-card"><div class="account-card__icon">{{ strtoupper(substr($cuenta->nombre, 0, 1)) }}</div><div class="account-card__body">
-    <div class="d-flex justify-content-between align-items-start"><div><h2>{{ $cuenta->nombre }}</h2><small>{{ ucfirst($cuenta->tipo) }}@if($cuenta->institucion) · {{ $cuenta->institucion }}@endif</small></div><strong>@cop($cuenta->saldo_actual_centavos)</strong></div>
-    <form method="POST" action="{{ route('app.cuentas.destroy', $cuenta) }}">@csrf @method('DELETE')<button class="archive-link">Archivar cuenta</button></form>
-</div></article>
-@empty <div class="alert alert-light">Aún no tienes cuentas adicionales.</div> @endforelse
+<article class="account-card">
+    <div class="account-card__main">
+        <div class="account-card__icon">@include('layouts.partials.icon', ['name' => 'wallet', 'class' => 'ui-icon ui-icon--sm'])</div>
+        <div class="account-card__body">
+            <div class="account-card__head">
+                <div class="account-card__title">
+                    <h2>{{ $cuenta->nombre }}</h2>
+                    <small>{{ ucfirst($cuenta->tipo) }}@if($cuenta->institucion) · {{ $cuenta->institucion }}@endif</small>
+                </div>
+                <strong class="account-card__amount">@cop($cuenta->saldo_actual_centavos)</strong>
+            </div>
+            <div class="account-card__actions mt-2">
+                <form method="POST" action="{{ route('app.cuentas.destroy', $cuenta) }}" class="d-inline" data-swal-confirm data-swal-title="¿Archivar esta cuenta?" data-swal-text="Deja de verse en tesorería activa. Puedes restaurarla después. El libro no se borra." data-swal-icon="warning" data-swal-confirm-text="Archivar">
+                    @csrf @method('DELETE')
+                    <button class="card-btn card-btn--warn" type="submit">
+                        @include('layouts.partials.icon', ['name' => 'archive', 'class' => 'ui-icon ui-icon--xs'])
+                        Archivar
+                    </button>
+                </form>
+                <button type="button" class="card-btn card-btn--muted" data-bs-toggle="collapse" data-bs-target="#cancelar-{{ $cuenta->id }}" aria-expanded="false">
+                    @include('layouts.partials.icon', ['name' => 'ban', 'class' => 'ui-icon ui-icon--xs'])
+                    Cancelar…
+                </button>
+            </div>
+            <div class="collapse mt-3" id="cancelar-{{ $cuenta->id }}">
+                @include('cuentas.partials.cancelar-form', [
+                    'cuenta' => $cuenta,
+                    'destinos' => $destinosActivos->where('id', '!=', $cuenta->id),
+                ])
+            </div>
+        </div>
+    </div>
+</article>
+@empty
+    <div class="alert alert-light">Aún no tienes cuentas activas. <a href="{{ route('app.cuentas.create') }}">Crear una</a>.</div>
+@endforelse
+</div>
+
+<h2 class="h5 mb-3">Archivadas</h2>
+<div class="card-stack">
+@forelse ($archivadas as $cuenta)
+<article class="account-card">
+    <div class="account-card__main">
+        <div class="account-card__icon">@include('layouts.partials.icon', ['name' => 'wallet', 'class' => 'ui-icon ui-icon--sm'])</div>
+        <div class="account-card__body">
+            <div class="account-card__head">
+                <div class="account-card__title">
+                    <h2>{{ $cuenta->nombre }}</h2>
+                    <small>Archivada · {{ ucfirst($cuenta->tipo) }}@if($cuenta->institucion) · {{ $cuenta->institucion }}@endif</small>
+                </div>
+                <strong class="account-card__amount">@cop($cuenta->saldo_actual_centavos)</strong>
+            </div>
+            <div class="account-card__actions mt-2">
+                <form method="POST" action="{{ route('app.cuentas.restore', $cuenta) }}" class="d-inline">
+                    @csrf
+                    <button class="card-btn card-btn--ok" type="submit">
+                        @include('layouts.partials.icon', ['name' => 'restore', 'class' => 'ui-icon ui-icon--xs'])
+                        Restaurar
+                    </button>
+                </form>
+                <button type="button" class="card-btn card-btn--muted" data-bs-toggle="collapse" data-bs-target="#cancelar-arch-{{ $cuenta->id }}" aria-expanded="false">
+                    @include('layouts.partials.icon', ['name' => 'ban', 'class' => 'ui-icon ui-icon--xs'])
+                    Cancelar…
+                </button>
+            </div>
+            <div class="collapse mt-3" id="cancelar-arch-{{ $cuenta->id }}">
+                @include('cuentas.partials.cancelar-form', [
+                    'cuenta' => $cuenta,
+                    'destinos' => $destinosActivos,
+                ])
+            </div>
+        </div>
+    </div>
+</article>
+@empty
+    <div class="alert alert-light mb-0">No hay cuentas archivadas.</div>
+@endforelse
 </div>
 @endsection
