@@ -3,11 +3,13 @@
 
 <head>
     @include('layouts.partials.pwa-meta', ['title' => $title ?? 'Finanzas'])
+    @include('layouts.partials.boot-splash-head')
     <meta name="csrf-token" content="{{ csrf_token() }}">
     @include('layouts.partials.vendor-head')
 </head>
 
 <body class="auth-page">
+    @include('layouts.partials.boot-splash')
     @include('layouts.partials.pwa-install')
     @if (session('status'))
         <script type="application/json" id="flash-status">@json(session('status'))</script>

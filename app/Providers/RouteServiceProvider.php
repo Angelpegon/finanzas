@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\Route;
 
 class RouteServiceProvider extends ServiceProvider
 {
+    /** @deprecated Prefer route('app.situacion'); path sin prefijo de subcarpeta. */
     public const HOME = '/situacion';
 
     public function boot(): void

@@ -141,7 +141,10 @@ if ($) {
 
 if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-        navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(() => {});
+        const base = (document.querySelector('meta[name="app-base-path"]')?.getAttribute('content') || '').replace(/\/$/, '');
+        const swUrl = `${base}/sw.js`;
+        const scope = `${base}/`;
+        navigator.serviceWorker.register(swUrl, { scope }).catch(() => {});
     });
 }
 

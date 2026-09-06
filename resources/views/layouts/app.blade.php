@@ -3,11 +3,13 @@
 
 <head>
     @include('layouts.partials.pwa-meta', ['title' => $title ?? 'Finanzas'])
+    @include('layouts.partials.boot-splash-head')
     <meta name="csrf-token" content="{{ csrf_token() }}">
     @include('layouts.partials.vendor-head')
 </head>
 
 <body class="app-shell {{ request()->routeIs('app.situacion') ? 'app-shell--dashboard' : '' }}">
+    @include('layouts.partials.boot-splash')
     @php
         $esDashboard = request()->routeIs('app.situacion');
     @endphp

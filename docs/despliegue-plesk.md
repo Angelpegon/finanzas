@@ -53,6 +53,17 @@ MAIL_MAILER=smtp   # o el que use Plesk
 APP_TIMEZONE=America/Bogota
 ```
 
+Si la app vive en **subcarpeta** (Document Root del dominio = `httpdocs`, código en `httpdocs/finanzas`):
+
+```env
+APP_URL=https://ingeer.co/finanzas
+FORCE_HTTPS=true
+```
+
+El path de `APP_URL` fija la raíz de links/assets/sesión/PWA. El middleware `StripUrlPrefix` quita ese path del request para que las rutas (`/login`, etc.) matcheen. El `.htaccess` del proyecto (raíz → `public/`) debe estar en `httpdocs/finanzas/`. Tras cambiar `.env`: borra `bootstrap/cache/*.php` y corre `bash scripts/deploy-plesk.sh` (o `config:cache` + `route:cache`).
+
+> Preferible a medio plazo: subdominio con Document Root = `…/finanzas/public`. El prefijo funciona, pero es más frágil (rewrite, nginx, cookies, PWA).
+
 Tras cambiar `.env`: `php artisan config:cache`.
 
 ## Dos flujos de subida
@@ -118,6 +129,11 @@ El tarball incluye `vendor` y `public/build`; **no** incluye `.env`.
 | 404 en todas las rutas | Document Root mal; o rewrite Apache desactivado |
 | “No application encryption key” | `APP_KEY` vacío |
 | Migrate falla | Credenciales DB o usuario sin privilegios DDL |
+| `open_basedir` / `is_dir()` con path `/Users/...` | Subiste `bootstrap/cache/config.php` cacheado en tu Mac. Borra `bootstrap/cache/*.php` en el servidor y corre `php artisan config:cache` ahí (o `bash scripts/deploy-plesk.sh`) |
+| `open_basedir` genérico sin path local | `storage/` o `bootstrap/cache` fuera del docroot permitido; o Document Root mal |
+| `404 \| NOT FOUND` de Laravel en `/finanzas/` | `APP_URL` sin el path (`https://ingeer.co` en vez de `https://ingeer.co/finanzas`), o `route:cache`/`config:cache` viejo. Corrige `.env`, borra `bootstrap/cache/*.php` y regenera |
+| Login redirige fuera de `/finanzas` | Middleware antiguo que reescribía `REQUEST_URI` sin ajustar `SCRIPT_NAME` (rompe `url.intended`). Usa la versión actual de `StripUrlPrefix` |
+| CSS/JS 404 bajo `/finanzas/build` | nginx sirve estáticos desde `httpdocs/finanzas/build` (no existe); deben resolverse vía rewrite a `finanzas/public/`. En Apache el `.htaccess` del proyecto lo hace; en nginx FPM añade `try_files` |
 
 ## Código ya preparado en el repo
 

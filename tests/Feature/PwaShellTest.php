@@ -29,10 +29,11 @@ class PwaShellTest extends TestCase
         $script = $respuesta->getContent();
 
         $this->assertStringContainsString("event.request.method !== 'GET'", $script);
-        $this->assertStringContainsString("caches.match('/offline.html')", $script);
+        $this->assertStringContainsString('caches.match(`${BASE}/offline.html`)', $script);
         $this->assertStringContainsString('skipWaiting', $script);
-        $this->assertStringContainsString("pathname.startsWith('/build/')", $script);
-        $this->assertStringContainsString('finanzas-pwa-v3', $script);
+        $this->assertStringContainsString('pathname.startsWith(`${BASE}/build/`)', $script);
+        $this->assertStringContainsString('finanzas-pwa-v4', $script);
+        $this->assertStringContainsString('self.location.pathname.replace', $script);
     }
 
     public function test_offline_explica_que_el_libro_no_se_posta_sin_red(): void
@@ -79,6 +80,7 @@ class PwaShellTest extends TestCase
             ->assertSee('Cerrar sesión')
             ->assertSee('header-bell', false)
             ->assertSee('alerts-sheet', false)
+            ->assertSee('boot-splash', false)
             ->assertSee('data-swal-confirm', false);
     }
 

@@ -4,6 +4,7 @@ namespace App\Providers;
 
 use App\Services\AlertaService;
 use App\Services\SituacionFinancieraService;
+use App\Support\UrlPrefix;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Blade;
 use Illuminate\Support\Facades\URL;
@@ -19,9 +20,28 @@ class AppServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
-        if ($this->app->environment('production') || config('app.force_https')) {
-            URL::forceScheme('https');
+        $root = rtrim((string) config('app.url'), '/');
+        $forceHttps = $this->app->environment('production') || (bool) config('app.force_https');
+
+        $aplicarUrl = function () use ($root, $forceHttps): void {
+            URL::forceRootUrl($root);
+            if ($forceHttps) {
+                URL::forceScheme('https');
+            }
+        };
+
+        // No resolver el facade URL sin request (rompe diag/artisan y cron).
+        if ($this->app->bound('request') && $this->app->make('request')) {
+            $aplicarUrl();
+        } else {
+            $this->app->rebinding('request', function ($app, $request) use ($aplicarUrl): void {
+                if ($request) {
+                    $aplicarUrl();
+                }
+            });
         }
+
+        config(['session.path' => UrlPrefix::sessionPath()]);
 
         Blade::directive('cop', function (string $expression) {
             return "<?php echo \\App\\Support\\Dinero::formatear($expression); ?>";

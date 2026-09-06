@@ -1,6 +1,7 @@
 <IfModule mod_headers.c>
     <FilesMatch "^(sw\.js)$">
         Header set Cache-Control "no-cache"
+        # Preferir el header que emite la ruta Laravel /sw.js (respeta subcarpeta).
         Header set Service-Worker-Allowed "/"
     </FilesMatch>
 </IfModule>
@@ -11,6 +12,9 @@
     </IfModule>
 
     RewriteEngine On
+
+    # PWA dinámico (prefijo /finanzas): no servir el archivo estático crudo.
+    RewriteRule ^(manifest\.json|offline\.html|sw\.js)$ index.php [L]
 
     # Handle Authorization Header
     RewriteCond %{HTTP:Authorization} .

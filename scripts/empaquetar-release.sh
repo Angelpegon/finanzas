@@ -15,6 +15,11 @@ npm run build
 echo "==> composer install --no-dev"
 composer install --no-dev --optimize-autoloader --no-interaction
 
+# Nunca empaquetar caches de artisan: config:cache/route:cache/view:cache
+# congelan rutas absolutas de ESTA máquina (p. ej. /Users/...) y rompen open_basedir en Plesk.
+echo "==> limpiando bootstrap/cache (excepto .gitignore)"
+find bootstrap/cache -type f ! -name '.gitignore' -delete 2>/dev/null || true
+
 echo "==> tar $OUT"
 tar -czf "$OUT" \
   --exclude='.git' \
@@ -25,6 +30,11 @@ tar -czf "$OUT" \
   --exclude='.phpunit.result.cache' \
   --exclude='.cursor' \
   --exclude='*.tar.gz' \
+  --exclude='bootstrap/cache/*.php' \
+  --exclude='storage/logs/*' \
+  --exclude='storage/framework/cache/data/*' \
+  --exclude='storage/framework/sessions/*' \
+  --exclude='storage/framework/views/*' \
   \
   app artisan bootstrap config database docs lang public resources routes \
   scripts storage \

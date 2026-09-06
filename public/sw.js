@@ -1,5 +1,6 @@
-const CACHE = 'finanzas-pwa-v3';
-const PRECACHE = ['/offline.html', '/manifest.json', '/icons/icon-192.png', '/icons/icon-512.png'];
+const BASE = self.location.pathname.replace(/\/sw\.js$/, '');
+const CACHE = 'finanzas-pwa-v4';
+const PRECACHE = [`${BASE}/offline.html`, `${BASE}/manifest.json`, `${BASE}/icons/icon-192.png`, `${BASE}/icons/icon-512.png`];
 
 self.addEventListener('install', (event) => {
     event.waitUntil(
@@ -27,13 +28,13 @@ self.addEventListener('fetch', (event) => {
 
     if (event.request.mode === 'navigate') {
         event.respondWith(
-            fetch(event.request).catch(() => caches.match('/offline.html'))
+            fetch(event.request).catch(() => caches.match(`${BASE}/offline.html`))
         );
         return;
     }
 
     // Vite hashea /build/: siempre red primero o el iPhone se queda con CSS/JS viejo.
-    if (url.pathname.startsWith('/build/')) {
+    if (url.pathname.startsWith(`${BASE}/build/`)) {
         event.respondWith(
             fetch(event.request)
                 .then((response) => {
@@ -48,10 +49,10 @@ self.addEventListener('fetch', (event) => {
         return;
     }
 
-    const estatico = url.pathname.startsWith('/assets/')
-        || url.pathname.startsWith('/icons/')
-        || url.pathname === '/manifest.json'
-        || url.pathname === '/offline.html';
+    const estatico = url.pathname.startsWith(`${BASE}/assets/`)
+        || url.pathname.startsWith(`${BASE}/icons/`)
+        || url.pathname === `${BASE}/manifest.json`
+        || url.pathname === `${BASE}/offline.html`;
 
     if (! estatico) {
         return;

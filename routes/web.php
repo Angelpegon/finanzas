@@ -2,6 +2,7 @@
 
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Auth;
+use App\Http\Controllers\PwaAssetController;
 use App\Http\Controllers\SituacionController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\CuentaLiquidaController;
@@ -15,19 +16,9 @@ use App\Http\Controllers\MetaAhorroController;
 use App\Http\Controllers\CalendarioController;
 use App\Http\Controllers\ProyeccionController;
 
-Route::get('/manifest.json', fn () => response(file_get_contents(public_path('manifest.json')), 200, [
-    'Content-Type' => 'application/manifest+json',
-    'Cache-Control' => 'no-cache',
-]));
-Route::get('/sw.js', fn () => response(file_get_contents(public_path('sw.js')), 200, [
-    'Content-Type' => 'application/javascript; charset=utf-8',
-    'Cache-Control' => 'no-cache',
-    'Service-Worker-Allowed' => '/',
-]));
-Route::get('/offline.html', fn () => response(file_get_contents(public_path('offline.html')), 200, [
-    'Content-Type' => 'text/html; charset=UTF-8',
-    'Cache-Control' => 'no-cache',
-]));
+Route::get('/manifest.json', [PwaAssetController::class, 'manifest']);
+Route::get('/sw.js', [PwaAssetController::class, 'serviceWorker']);
+Route::get('/offline.html', [PwaAssetController::class, 'offline']);
 
 Route::get('/', fn () => redirect()->route(Auth::check() ? 'app.situacion' : 'login'));
 Route::middleware('guest')->group(function (): void {
