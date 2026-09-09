@@ -11,8 +11,12 @@
     $destinosActivos = $cuentas;
 @endphp
 
-<h2 class="h5 mb-3">Activas</h2>
-<div class="card-stack mb-4">
+<div class="list-block list-block--flush">
+<div class="list-block__head">
+    <h2>Activas</h2>
+    <span>{{ $cuentas->count() }}</span>
+</div>
+<div class="card-stack">
 @forelse ($cuentas as $cuenta)
 <article class="account-card">
     <div class="account-card__main">
@@ -48,11 +52,16 @@
     </div>
 </article>
 @empty
-    <div class="alert alert-light">Aún no tienes cuentas activas. <a href="{{ route('app.cuentas.create') }}">Crear una</a>.</div>
+    <div class="alert alert-light empty-state">Aún no tienes cuentas activas. <a href="{{ route('app.cuentas.create') }}">Crear una</a>.</div>
 @endforelse
 </div>
+</div>
 
-<h2 class="h5 mb-3">Archivadas</h2>
+<div class="list-block">
+<div class="list-block__head">
+    <h2>Archivadas</h2>
+    <span>{{ $archivadas->count() }}</span>
+</div>
 <div class="card-stack">
 @forelse ($archivadas as $cuenta)
 <article class="account-card">
@@ -89,7 +98,8 @@
     </div>
 </article>
 @empty
-    <div class="alert alert-light mb-0">No hay cuentas archivadas.</div>
+    <div class="alert alert-light empty-state mb-0">No hay cuentas archivadas.</div>
 @endforelse
+</div>
 </div>
 @endsection

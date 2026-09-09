@@ -11,6 +11,11 @@
     $prestamoConError = $errPagoPrestamo->any() ? (int) old('prestamo_id') : null;
 @endphp
 @include('layouts.partials.form-errors', ['bag' => 'pago_prestamo'])
+<div class="list-block list-block--flush">
+<div class="list-block__head">
+    <h2>Obligaciones</h2>
+    <span>{{ $prestamos->count() + $tarjetas->count() }}</span>
+</div>
 <div class="card-stack">
 @foreach($prestamos as $deuda)
 @php
@@ -114,7 +119,8 @@
 </article>
 @endforeach
 @if($prestamos->isEmpty() && $tarjetas->isEmpty())
-    <div class="alert alert-light">Aún no tienes obligaciones registradas.</div>
+    <div class="alert alert-light empty-state">Aún no tienes obligaciones registradas.</div>
 @endif
+</div>
 </div>
 @endsection

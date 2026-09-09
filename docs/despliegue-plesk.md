@@ -108,6 +108,7 @@ El tarball incluye `vendor` y `public/build`; **no** incluye `.env`.
 - Dejar `APP_DEBUG=true` en producción (filtra `.env`, rutas, SQL).
 - Apuntar el Document Root a la raíz del repo **si puedes evitarlo**.
 - Subir `.env` de desarrollo, `node_modules/`, o `public/hot` (rompe Vite en prod: obliga HMR).
+- Subir o dejar `public/diag-*.php` (diagnóstico temporal; el empaquetador los excluye, pero bórralos del servidor si existen).
 - Confiar en `php_value` del `.htaccess`: en Plesk FPM manda `.user.ini` / PHP Settings.
 - Esperar colas en background: `QUEUE_CONNECTION=sync` (fase 1). Cron de `schedule:run` solo si más adelante hay scheduler.
 
@@ -118,6 +119,7 @@ El tarball incluye `vendor` y `public/build`; **no** incluye `.env`.
 3. Cookies de sesión con flag Secure (DevTools).
 4. Un ingreso/gasto de prueba y dashboard con saldos.
 5. `storage/logs/laravel.log` sin errores de permisos.
+6. `GET /diag-finanzas.php` (y hermanos) → **404**.
 
 ## Fallos frecuentes
 
@@ -137,7 +139,8 @@ El tarball incluye `vendor` y `public/build`; **no** incluye `.env`.
 
 ## Código ya preparado en el repo
 
-- `TrustProxies`: confía en el proxy de Plesk (`X-Forwarded-*`).
+- `TrustProxies`: lee `TRUSTED_PROXIES` (default `*`; restringe a IPs del proxy cuando puedas).
+- `SecurityHeaders`: `nosniff`, `Referrer-Policy`, HSTS si `FORCE_HTTPS`/production.
 - `FORCE_HTTPS` / `APP_ENV=production` → `URL::forceScheme('https')`.
 - `.htaccess` raíz: fallback si el docroot no es `/public`.
 - `public/.user.ini`: límites PHP para FPM (sustituye el bloque `mod_php` viejo).

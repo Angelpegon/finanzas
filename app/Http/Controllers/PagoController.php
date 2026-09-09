@@ -21,14 +21,21 @@ use Illuminate\View\View;
 
 class PagoController extends Controller
 {
-    public function index(): View
+    public function index(\App\Services\MetaAhorroService $metas): View
     {
+        $usuarioId = Auth::id();
+        $bolsilloIds = $metas->idsBolsillos($usuarioId);
+        $cuentas = CuentaLiquida::where('activa', true)
+            ->when($bolsilloIds !== [], fn ($q) => $q->whereNotIn('id', $bolsilloIds))
+            ->orderBy('nombre')
+            ->get();
+
         return view('pagos.index', [
             'pagos' => Pago::with(['cuentaLiquida', 'categoria'])->latest('fecha')->latest('id')->get(),
             'transferencias' => HechoTesoreria::with(['cuentaLiquida'])
                 ->whereIn('tipo', [TipoHechoTesoreria::Transferencia->value, TipoHechoTesoreria::AporteMeta->value])
                 ->latest('fecha')->latest('id')->limit(20)->get(),
-            'cuentas' => CuentaLiquida::where('activa', true)->orderBy('nombre')->get(),
+            'cuentas' => $cuentas,
             'categorias' => Categoria::where('tipo', 'gasto')->orderBy('nombre')->get(),
             'prestamos' => Prestamo::orderBy('nombre')->get(),
             'tarjetas' => TarjetaCredito::where('activa', true)->orderBy('nombre')->get(),

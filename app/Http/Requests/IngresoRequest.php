@@ -33,7 +33,7 @@ class IngresoRequest extends FormRequest
             'cuenta_liquida_id' => [
                 'required',
                 'integer',
-                Rule::exists('cuentas_liquidas', 'id')->where('usuario_id', $this->user()->id)->where('activa', true),
+                \App\Support\CuentasOperativas::reglaExistsActiva($this->user()->id),
             ],
             'descripcion' => ['nullable', 'string', 'max:255'],
             'periodicidad' => ['required', 'in:unico,diario,semanal,quincenal,mensual,anual'],

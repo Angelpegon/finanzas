@@ -55,6 +55,19 @@ class TesoreriaService
             if ($categoria && $tipo === TipoHechoTesoreria::Gasto && $categoria->tipo !== 'gasto') {
                 throw new \InvalidArgumentException('La categoría no corresponde a un gasto.');
             }
+
+            $bolsillos = \App\Support\CuentasOperativas::idsBolsillosActivos($usuarioId);
+            if ($tipo === TipoHechoTesoreria::Transferencia) {
+                if ($cuenta && in_array((int) $cuenta->id, $bolsillos, true)) {
+                    throw new \InvalidArgumentException('No uses un bolsillo de meta en transferencias; usa aportes a meta.');
+                }
+                if ($cuentaDestinoId !== null && in_array((int) $cuentaDestinoId, $bolsillos, true)) {
+                    throw new \InvalidArgumentException('No uses un bolsillo de meta en transferencias; usa aportes a meta.');
+                }
+            } elseif ($tipo !== TipoHechoTesoreria::AporteMeta && $cuenta && in_array((int) $cuenta->id, $bolsillos, true)) {
+                throw new \InvalidArgumentException('El bolsillo de una meta solo se mueve con aportes a meta.');
+            }
+
             if ($tipo === TipoHechoTesoreria::Gasto && $cuenta && $cuenta->saldoCentavos() < $montoCentavos) {
                 throw new \InvalidArgumentException('Saldo insuficiente en la cuenta de pago.');
             }

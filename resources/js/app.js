@@ -73,6 +73,23 @@ if ($) {
         });
     });
 
+    $(document).on('submit', 'form', function (evento) {
+        const form = this;
+        if (form.hasAttribute('data-swal-confirm')) {
+            return;
+        }
+        const method = (form.getAttribute('method') || 'get').toLowerCase();
+        if (method !== 'post') {
+            return;
+        }
+        if (form.dataset.submitting === '1') {
+            evento.preventDefault();
+            return false;
+        }
+        form.dataset.submitting = '1';
+        $(form).find('button[type="submit"], input[type="submit"]').prop('disabled', true);
+    });
+
     $('[data-mov-tabs]').each(function () {
         const $tabs = $(this);
         const $list = $tabs.parent().find('[data-mov-list]');
@@ -95,6 +112,9 @@ if ($) {
         $(document).on('submit', '[data-swal-confirm]', function (evento) {
             evento.preventDefault();
             const form = this;
+            if (form.dataset.submitting === '1') {
+                return;
+            }
             Swal.fire({
                 title: form.dataset.swalTitle || '¿Confirmar?',
                 text: form.dataset.swalText || '',
@@ -107,7 +127,13 @@ if ($) {
                 reverseButtons: true,
             }).then((resultado) => {
                 if (resultado.isConfirmed) {
-                    form.submit();
+                    form.dataset.submitting = '1';
+                    // No deshabilitar botones del diálogo Swal: solo el submit del form.
+                    const submitters = form.querySelectorAll('button[type="submit"], input[type="submit"]');
+                    submitters.forEach((el) => {
+                        el.disabled = true;
+                    });
+                    HTMLFormElement.prototype.submit.call(form);
                 }
             });
         });
@@ -152,7 +178,7 @@ const banner = document.querySelector('[data-pwa-install]');
 const dismissedKey = 'finanzas-pwa-dismissed';
 const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
 const isIos = /iphone|ipad|ipod/i.test(navigator.userAgent)
-    || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    || (/macintosh/i.test(navigator.userAgent) && navigator.maxTouchPoints > 1 && 'ontouchend' in document);
 
 if (banner && ! isStandalone && localStorage.getItem(dismissedKey) !== '1') {
     const copy = banner.querySelector('[data-pwa-install-copy]');

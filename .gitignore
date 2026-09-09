@@ -19,4 +19,4 @@ yarn-error.log
 /graphify-out
 *.tar.gz
 finanzas-release.tar.gz
-
+/public/diag-*.php

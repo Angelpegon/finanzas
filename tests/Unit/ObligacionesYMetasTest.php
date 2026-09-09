@@ -119,4 +119,33 @@ class ObligacionesYMetasTest extends TestCase
         $this->assertSame($origen->nombre.'_bolsillo2', $meta2->cuentaLiquida->nombre);
         $this->assertNotSame($meta1->cuenta_liquida_id, $meta2->cuenta_liquida_id);
     }
+
+    public function test_transferencia_rechaza_bolsillo_de_meta_activa(): void
+    {
+        $user = $this->usuarioConCatalogo();
+        $origen = CuentaLiquida::withoutGlobalScopes()->where('usuario_id', $user->id)->firstOrFail();
+        app(TesoreriaService::class)->registrar(
+            $user->id, TipoHechoTesoreria::Apertura, now()->toDateString(), 500_000_00, $origen->id
+        );
+        $meta = app(MetaAhorroService::class)->crear(
+            $user->id, 'Viaje', 1_000_000_00, null, 0, $origen->id
+        );
+        app(MetaAhorroService::class)->aportar($user->id, $meta->id, 100_000_00, $origen->id, now()->toDateString());
+        $bolsillo = $meta->fresh()->cuentaLiquida;
+        $this->assertNotNull($bolsillo);
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessageMatches('/bolsillo/i');
+
+        app(TesoreriaService::class)->registrar(
+            $user->id,
+            TipoHechoTesoreria::Transferencia,
+            now()->toDateString(),
+            50_000_00,
+            $bolsillo->id,
+            null,
+            $origen->id,
+            'sacar del bolsillo a mano'
+        );
+    }
 }

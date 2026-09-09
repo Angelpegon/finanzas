@@ -57,7 +57,7 @@ class AppServiceProvider extends ServiceProvider
             $id = Auth::id();
 
             if (! $view->offsetExists('situacion')) {
-                $cache[$id] ??= app(SituacionFinancieraService::class)->responder($id);
+                $cache[$id] ??= app(SituacionFinancieraService::class)->resumenShell($id);
                 $view->with('situacion', $cache[$id]);
             }
 

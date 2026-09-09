@@ -35,6 +35,8 @@ tar -czf "$OUT" \
   --exclude='storage/framework/cache/data/*' \
   --exclude='storage/framework/sessions/*' \
   --exclude='storage/framework/views/*' \
+  --exclude='public/diag-*.php' \
+  --exclude='public/diag*.php' \
   \
   app artisan bootstrap config database docs lang public resources routes \
   scripts storage \

@@ -102,6 +102,32 @@ class FormValidationTest extends TestCase
         $this->assertFalse(session('errors')->pago->any());
     }
 
+    public function test_transferencia_rechaza_bolsillo_de_meta_por_http(): void
+    {
+        $usuario = $this->usuarioConCatalogo();
+        $origen = CuentaLiquida::where('usuario_id', $usuario->id)->firstOrFail();
+        app(\App\Services\TesoreriaService::class)->registrar(
+            $usuario->id,
+            \App\Enums\TipoHechoTesoreria::Apertura,
+            now()->toDateString(),
+            500_000_00,
+            $origen->id
+        );
+        $meta = app(\App\Services\MetaAhorroService::class)->crear(
+            $usuario->id, 'Viaje', 1_000_000_00, null, 0, $origen->id
+        );
+        $bolsilloId = (int) $meta->cuenta_liquida_id;
+
+        $response = $this->actingAs($usuario)->from(route('app.pagos.index'))->post(route('app.transferencias.store'), [
+            'cuenta_liquida_id' => $origen->id,
+            'cuenta_destino_id' => $bolsilloId,
+            'monto' => '10000',
+            'fecha' => now()->toDateString(),
+        ]);
+
+        $response->assertSessionHasErrorsIn('transferencia', ['cuenta_destino_id']);
+    }
+
     public function test_error_de_dominio_de_pago_se_asocia_al_campo_correcto(): void
     {
         $usuario = $this->usuarioConCatalogo();

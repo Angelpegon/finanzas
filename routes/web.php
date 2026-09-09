@@ -25,7 +25,7 @@ Route::middleware('guest')->group(function (): void {
     Route::get('/login', [AuthController::class, 'loginForm'])->name('login');
     Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:login')->name('auth.login');
     Route::get('/registro', [AuthController::class, 'registerForm'])->name('register');
-    Route::post('/registro', [AuthController::class, 'register'])->name('auth.register');
+    Route::post('/registro', [AuthController::class, 'register'])->middleware('throttle:register')->name('auth.register');
 });
 Route::middleware('auth')->group(function (): void {
     Route::get('/situacion', SituacionController::class)->name('app.situacion');

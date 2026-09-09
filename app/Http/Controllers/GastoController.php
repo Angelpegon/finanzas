@@ -15,11 +15,16 @@ use Illuminate\View\View;
 
 class GastoController extends Controller
 {
-    public function create(): View
+    public function create(\App\Services\MetaAhorroService $metas): View
     {
+        $bolsilloIds = $metas->idsBolsillos(Auth::id());
+
         return view('gastos.create', [
             'categorias' => Categoria::where('tipo', 'gasto')->orderBy('nombre')->get(),
-            'cuentas' => CuentaLiquida::where('activa', true)->orderBy('nombre')->get(),
+            'cuentas' => CuentaLiquida::where('activa', true)
+                ->when($bolsilloIds !== [], fn ($q) => $q->whereNotIn('id', $bolsilloIds))
+                ->orderBy('nombre')
+                ->get(),
         ]);
     }
 

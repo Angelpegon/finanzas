@@ -33,7 +33,7 @@ class GastoRequest extends FormRequest
             'cuenta_liquida_id' => [
                 'required',
                 'integer',
-                Rule::exists('cuentas_liquidas', 'id')->where('usuario_id', $this->user()->id)->where('activa', true),
+                \App\Support\CuentasOperativas::reglaExistsActiva($this->user()->id),
             ],
             'tipo_gasto' => ['required', 'in:fijo,variable,extraordinario'],
             'descripcion' => ['nullable', 'string', 'max:255'],

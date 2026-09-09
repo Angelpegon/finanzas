@@ -1,5 +1,9 @@
 <?php
 
+/*
+| API JSON diferida (Sanctum fuera de fase 1). Sin endpoints activos.
+*/
+
 use Illuminate\Support\Facades\Route;
 
-Route::middleware('auth')->get('/usuario', fn (\Illuminate\Http\Request $request) => $request->user());
+// Intencionalmente vacío: la app es Blade + sesión.

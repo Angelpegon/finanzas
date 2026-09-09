@@ -40,13 +40,23 @@ class SituacionFinancieraService
             ->where('estado', '!=', 'cancelada')
             ->get();
         $bolsilloIds = $this->idsBolsillosMetaActiva($usuarioId);
-        $liquidez = (int) $cuentas->sum(fn (CuentaLiquida $cuenta) => $cuenta->saldoCentavos());
+        $saldos = CuentaContable::saldosCentavosMap(
+            $usuarioId,
+            $cuentas->pluck('cuenta_contable_id')->map(fn ($id) => (int) $id)->all()
+        );
+        $saldoDe = fn (CuentaLiquida $cuenta): int => (int) ($saldos[(int) $cuenta->cuenta_contable_id] ?? 0);
+        $liquidez = (int) $cuentas->sum($saldoDe);
         $reservadoMetas = (int) $cuentas
             ->whereIn('id', $bolsilloIds)
-            ->sum(fn (CuentaLiquida $cuenta) => $cuenta->saldoCentavos());
+            ->sum($saldoDe);
         $liquidezLibre = $liquidez - $reservadoMetas;
-        $deuda = (int) CuentaContable::withoutGlobalScopes()->where('usuario_id', $usuarioId)
-            ->where('naturaleza', NaturalezaCuenta::Pasivo)->get()->sum(fn (CuentaContable $cuenta) => $cuenta->saldoCentavos());
+        $pasivos = CuentaContable::withoutGlobalScopes()->where('usuario_id', $usuarioId)
+            ->where('naturaleza', NaturalezaCuenta::Pasivo)->get();
+        $saldosPasivo = CuentaContable::saldosCentavosMap(
+            $usuarioId,
+            $pasivos->pluck('id')->map(fn ($id) => (int) $id)->all()
+        );
+        $deuda = (int) $pasivos->sum(fn (CuentaContable $cuenta) => (int) ($saldosPasivo[(int) $cuenta->id] ?? 0));
         $inicio = $fecha->copy()->startOfMonth();
         $fin = $fecha->copy()->endOfMonth();
         $proyeccion = $this->proyeccion->horizonteMensual($usuarioId, $fecha);
@@ -130,6 +140,54 @@ class SituacionFinancieraService
         return $payload;
     }
 
+    /**
+     * Payload liviano para el shell (sidebar + alertas) en páginas que no son el dashboard.
+     *
+     * @return array{dinero_disponible_real_centavos:int,flujo_caja_centavos:int,nivel_endeudamiento_porcentaje:float|int}
+     */
+    public function resumenShell(int $usuarioId, ?Carbon $fecha = null): array
+    {
+        $fecha ??= now();
+        $cuentas = CuentaLiquida::withoutGlobalScopes()->where('usuario_id', $usuarioId)
+            ->where('estado', '!=', 'cancelada')
+            ->get();
+        $bolsilloIds = $this->idsBolsillosMetaActiva($usuarioId);
+        $saldos = CuentaContable::saldosCentavosMap(
+            $usuarioId,
+            $cuentas->pluck('cuenta_contable_id')->map(fn ($id) => (int) $id)->all()
+        );
+        $saldoDe = fn (CuentaLiquida $cuenta): int => (int) ($saldos[(int) $cuenta->cuenta_contable_id] ?? 0);
+        $liquidez = (int) $cuentas->sum($saldoDe);
+        $reservadoMetas = (int) $cuentas->whereIn('id', $bolsilloIds)->sum($saldoDe);
+        $liquidezLibre = $liquidez - $reservadoMetas;
+
+        $pasivos = CuentaContable::withoutGlobalScopes()->where('usuario_id', $usuarioId)
+            ->where('naturaleza', NaturalezaCuenta::Pasivo)->pluck('id')->map(fn ($id) => (int) $id)->all();
+        $saldosPasivo = CuentaContable::saldosCentavosMap($usuarioId, $pasivos);
+        $deuda = (int) array_sum($saldosPasivo);
+
+        $inicio = $fecha->copy()->startOfMonth();
+        $fin = $fecha->copy()->endOfMonth();
+        $proyeccion = $this->proyeccion->horizonteMensual($usuarioId, $fecha);
+        $ingresosMes = \App\Support\AgregadosLibro::ingresosReales($usuarioId, $inicio, $fin);
+        $gastosMes = \App\Support\AgregadosLibro::gastosReales($usuarioId, $inicio, $fin);
+        $pagosDeudaMes = (int) Pago::withoutGlobalScopes()->where('usuario_id', $usuarioId)
+            ->whereIn('tipo', ['prestamo', 'credito', 'tarjeta'])->whereBetween('fecha', [$inicio, $fin])->sum('monto_centavos');
+        $flujo = $ingresosMes - $gastosMes - $pagosDeudaMes;
+        $gastosProyectadosPendientes = max(0, $proyeccion['gastos'] - $gastosMes);
+        $dineroComprometido = $proyeccion['cuotas'] + $proyeccion['metas'];
+        $disponible = $liquidezLibre - $dineroComprometido - $gastosProyectadosPendientes;
+        $nivelEndeudamiento = $liquidez > 0
+            ? round(($deuda / $liquidez) * 100, 1)
+            : ($deuda > 0 ? 100 : 0);
+
+        return [
+            'dinero_disponible_real_centavos' => $disponible,
+            'flujo_caja_centavos' => $flujo,
+            'nivel_endeudamiento_porcentaje' => $nivelEndeudamiento,
+        ];
+    }
+
     private function widgetsDashboard(
         int $usuarioId,
         Carbon $fecha,
@@ -152,14 +210,18 @@ class SituacionFinancieraService
             ->where('usuario_id', $usuarioId)
             ->where('activa', true)
             ->orderBy('nombre')
-            ->get()
-            ->map(fn (CuentaLiquida $cuenta) => [
-                'id' => $cuenta->id,
-                'nombre' => $cuenta->nombre,
-                'tipo' => $cuenta->tipo,
-                'institucion' => $cuenta->institucion,
-                'saldo_centavos' => $cuenta->saldoCentavos(),
-            ])->values();
+            ->get();
+        $saldosCuentas = CuentaContable::saldosCentavosMap(
+            $usuarioId,
+            $cuentas->pluck('cuenta_contable_id')->map(fn ($id) => (int) $id)->all()
+        );
+        $cuentas = $cuentas->map(fn (CuentaLiquida $cuenta) => [
+            'id' => $cuenta->id,
+            'nombre' => $cuenta->nombre,
+            'tipo' => $cuenta->tipo,
+            'institucion' => $cuenta->institucion,
+            'saldo_centavos' => (int) ($saldosCuentas[(int) $cuenta->cuenta_contable_id] ?? 0),
+        ])->values();
 
         $metas = MetaAhorro::withoutGlobalScopes()
             ->where('usuario_id', $usuarioId)
@@ -170,8 +232,7 @@ class SituacionFinancieraService
             ->get();
 
         $eventosMes = $this->calendario->mensual($usuarioId, $fecha->year, $fecha->month);
-        $porDia = collect($eventosMes)->groupBy('fecha');
-        $calendarioGrilla = $this->construirGrillaCalendario($fecha, $porDia);
+        $calendarioGrilla = $this->calendario->grillaMensual($fecha, $eventosMes);
 
         $movimientos = HechoTesoreria::withoutGlobalScopes()
             ->where('usuario_id', $usuarioId)
@@ -272,41 +333,6 @@ class SituacionFinancieraService
         }
 
         return round((($actual - $anterior) / abs($anterior)) * 100, 1);
-    }
-
-    private function construirGrillaCalendario(Carbon $fecha, $porDia): array
-    {
-        $inicioMes = $fecha->copy()->startOfMonth();
-        $diasEnMes = $inicioMes->daysInMonth;
-        // Carbon: 0 = domingo … 6 = sábado; grilla Lun–Dom
-        $offset = ($inicioMes->dayOfWeek + 6) % 7;
-        $celdas = [];
-        for ($i = 0; $i < $offset; $i++) {
-            $celdas[] = null;
-        }
-        for ($dia = 1; $dia <= $diasEnMes; $dia++) {
-            $fechaDia = $inicioMes->copy()->day($dia)->toDateString();
-            $eventos = ($porDia[$fechaDia] ?? collect())->values()->all();
-            $celdas[] = [
-                'dia' => $dia,
-                'fecha' => $fechaDia,
-                'hoy' => $fechaDia === now()->toDateString(),
-                'eventos' => $eventos,
-                'monto_centavos' => (int) collect($eventos)->sum('monto_centavos'),
-                'tiene_pago' => collect($eventos)->contains(fn ($e) => in_array($e['tipo'], ['cuota', 'pago', 'limite_tarjeta', 'gasto'], true)),
-                'tiene_ingreso' => collect($eventos)->contains(fn ($e) => $e['tipo'] === 'ingreso'),
-            ];
-        }
-        while (count($celdas) % 7 !== 0) {
-            $celdas[] = null;
-        }
-
-        return [
-            'anio' => $fecha->year,
-            'mes' => $fecha->month,
-            'etiqueta' => ucfirst($fecha->copy()->locale('es')->monthName).' '.$fecha->year,
-            'celdas' => $celdas,
-        ];
     }
 
     private function detalleDeudaDestacada(int $usuarioId): ?array

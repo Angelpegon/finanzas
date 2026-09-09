@@ -3,8 +3,8 @@
 namespace App\Http\Requests;
 
 use App\Http\Requests\Concerns\MensajesFormulario;
+use App\Support\CuentasOperativas;
 use Illuminate\Foundation\Http\FormRequest;
-use Illuminate\Validation\Rule;
 
 class TransferenciaRequest extends FormRequest
 {
@@ -24,17 +24,15 @@ class TransferenciaRequest extends FormRequest
 
     public function rules(): array
     {
+        $operativa = CuentasOperativas::reglaExistsActiva($this->user()->id);
+
         return [
-            'cuenta_liquida_id' => [
-                'required',
-                'integer',
-                Rule::exists('cuentas_liquidas', 'id')->where('usuario_id', $this->user()->id)->where('activa', true),
-            ],
+            'cuenta_liquida_id' => ['required', 'integer', $operativa],
             'cuenta_destino_id' => [
                 'required',
                 'integer',
                 'different:cuenta_liquida_id',
-                Rule::exists('cuentas_liquidas', 'id')->where('usuario_id', $this->user()->id)->where('activa', true),
+                CuentasOperativas::reglaExistsActiva($this->user()->id),
             ],
             'monto' => ['required', 'numeric', 'gt:0'],
             'fecha' => ['required', 'date'],
@@ -46,6 +44,14 @@ class TransferenciaRequest extends FormRequest
     {
         return [
             'cuenta_liquida_id' => 'cuenta de origen',
+        ];
+    }
+
+    protected function mensajesExtra(): array
+    {
+        return [
+            'cuenta_liquida_id.exists' => 'La cuenta de origen no es válida o es un bolsillo de meta.',
+            'cuenta_destino_id.exists' => 'La cuenta destino no es válida o es un bolsillo de meta.',
         ];
     }
 }

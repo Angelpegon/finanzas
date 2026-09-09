@@ -1,28 +1,32 @@
 @extends('layouts.guest', ['title' => 'Iniciar sesión'])
 
 @section('content')
-<div class="text-center mb-4">
-    <div class="brand-mark">$</div>
-    <h1 class="h3 mb-1">Bienvenido</h1>
-    <p class="text-secondary mb-0">Organiza tus finanzas desde cualquier lugar.</p>
+<div class="auth-card__intro">
+    <p class="auth-card__kicker">Iniciar sesión</p>
+    <h2 class="auth-card__title">Bienvenido de nuevo</h2>
+    <p class="auth-card__lead">Entra para ver tu situación y registrar movimientos.</p>
 </div>
-<form method="POST" action="{{ route('auth.login') }}" class="vstack gap-3">
+<form method="POST" action="{{ route('auth.login') }}" class="auth-form" novalidate>
     @csrf
-    <div>
+    <div class="auth-field">
         <label for="email" class="form-label">Correo electrónico</label>
         <input id="email" name="email" type="email" value="{{ old('email') }}" class="form-control form-control-lg @error('email') is-invalid @enderror" autocomplete="email" required autofocus>
         @error('email')<div class="invalid-feedback">{{ $message }}</div>@enderror
     </div>
-    <div>
+    <div class="auth-field">
         <label for="password" class="form-label">Contraseña</label>
         <input id="password" name="password" type="password" class="form-control form-control-lg @error('password') is-invalid @enderror" autocomplete="current-password" required>
         @error('password')<div class="invalid-feedback">{{ $message }}</div>@enderror
     </div>
-    <div class="form-check">
-        <input id="remember" name="remember" type="checkbox" value="1" class="form-check-input">
-        <label for="remember" class="form-check-label">Mantener sesión iniciada</label>
+    <div class="auth-field auth-field--inline">
+        <div class="form-check">
+            <input id="remember" name="remember" type="checkbox" value="1" class="form-check-input">
+            <label for="remember" class="form-check-label">Mantener sesión iniciada</label>
+        </div>
     </div>
-    <button class="btn btn-primary btn-lg w-100" type="submit">Ingresar</button>
+    <div class="auth-actions">
+        <button class="btn btn-primary btn-lg w-100" type="submit">Ingresar</button>
+    </div>
 </form>
-<p class="text-center mt-4 mb-0">¿Aún no tienes cuenta? <a href="{{ route('register') }}">Crear cuenta</a></p>
+<p class="auth-card__footer">¿Aún no tienes cuenta? <a href="{{ route('register') }}">Crear cuenta</a></p>
 @endsection

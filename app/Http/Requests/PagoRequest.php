@@ -31,7 +31,7 @@ class PagoRequest extends FormRequest
             'cuenta_liquida_id' => [
                 'required',
                 'integer',
-                Rule::exists('cuentas_liquidas', 'id')->where('usuario_id', $this->user()->id)->where('activa', true),
+                \App\Support\CuentasOperativas::reglaExistsActiva($this->user()->id),
             ],
             'categoria_id' => [
                 'required_if:tipo,gasto,servicio,deuda_personal,otra_obligacion',

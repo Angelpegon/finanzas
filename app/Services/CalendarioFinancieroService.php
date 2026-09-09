@@ -54,6 +54,67 @@ class CalendarioFinancieroService
         return $eventos->sortBy(fn (array $evento) => $evento['fecha'].'-'.$evento['tipo'])->values()->all();
     }
 
+    /**
+     * Grilla Lun–Dom del mes a partir de eventos ya calculados.
+     *
+     * @param  array<int, array{fecha: string, tipo: string, estado: string, monto_centavos: int, descripcion: string}>  $eventos
+     * @return array{anio: int, mes: int, etiqueta: string, celdas: list<null|array<string, mixed>>}
+     */
+    public function grillaMensual(Carbon $fecha, array $eventos): array
+    {
+        $porDia = collect($eventos)->groupBy('fecha');
+        $inicioMes = $fecha->copy()->startOfMonth();
+        $diasEnMes = $inicioMes->daysInMonth;
+        // Carbon: 0 = domingo … 6 = sábado; grilla Lun–Dom
+        $offset = ($inicioMes->dayOfWeek + 6) % 7;
+        $celdas = [];
+        for ($i = 0; $i < $offset; $i++) {
+            $celdas[] = null;
+        }
+        for ($dia = 1; $dia <= $diasEnMes; $dia++) {
+            $fechaDia = $inicioMes->copy()->day($dia)->toDateString();
+            $eventosDia = ($porDia[$fechaDia] ?? collect())->values()->all();
+            $celdas[] = [
+                'dia' => $dia,
+                'fecha' => $fechaDia,
+                'hoy' => $fechaDia === now()->toDateString(),
+                'eventos' => $eventosDia,
+                'monto_centavos' => (int) collect($eventosDia)->sum('monto_centavos'),
+                'tiene_pago' => collect($eventosDia)->contains(fn ($e) => in_array($e['tipo'], ['cuota', 'pago', 'limite_tarjeta', 'gasto'], true)),
+                'tiene_ingreso' => collect($eventosDia)->contains(fn ($e) => $e['tipo'] === 'ingreso'),
+                'tiene_vencido' => collect($eventosDia)->contains(fn ($e) => ($e['estado'] ?? '') === 'vencido'),
+            ];
+        }
+        while (count($celdas) % 7 !== 0) {
+            $celdas[] = null;
+        }
+
+        return [
+            'anio' => $fecha->year,
+            'mes' => $fecha->month,
+            'etiqueta' => ucfirst($fecha->copy()->locale('es')->monthName).' '.$fecha->year,
+            'celdas' => $celdas,
+        ];
+    }
+
+    /**
+     * @param  array<int, array{fecha: string, tipo: string, estado: string, monto_centavos: int, descripcion: string}>  $eventos
+     * @return array{reales: int, proyectados: int, vencidos: int, ingresos_centavos: int, salidas_centavos: int}
+     */
+    public function resumenMensual(array $eventos): array
+    {
+        $col = collect($eventos);
+        $esSalida = fn (array $e): bool => in_array($e['tipo'], ['gasto', 'pago', 'cuota', 'limite_tarjeta'], true);
+
+        return [
+            'reales' => $col->where('estado', 'real')->count(),
+            'proyectados' => $col->where('estado', 'proyectado')->count(),
+            'vencidos' => $col->where('estado', 'vencido')->count(),
+            'ingresos_centavos' => (int) $col->where('tipo', 'ingreso')->sum('monto_centavos'),
+            'salidas_centavos' => (int) $col->filter($esSalida)->sum('monto_centavos'),
+        ];
+    }
+
     private function agregarRecurrencias(Collection $eventos, Recurrencia $recurrencia, Carbon $inicio, Carbon $fin): void
     {
         if (in_array($recurrencia->periodicidad, ['mensual', 'anual', 'unico'], true)

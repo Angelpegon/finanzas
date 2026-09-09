@@ -167,14 +167,24 @@
             </button>
         </nav>
         @include('layouts.partials.alerts-sheet')
-        <div class="offcanvas offcanvas-bottom more-sheet" tabindex="-1" id="capture-sheet" aria-labelledby="capture-sheet-title">
+        <div class="offcanvas offcanvas-bottom more-sheet capture-sheet" tabindex="-1" id="capture-sheet" aria-labelledby="capture-sheet-title">
             <div class="offcanvas-header">
                 <h2 id="capture-sheet-title" class="offcanvas-title h5 mb-0">Registrar</h2>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="offcanvas" aria-label="Cerrar menú"></button>
             </div>
             <div class="offcanvas-body">
-                <a href="{{ route('app.ingresos.create') }}">Registrar ingreso</a>
-                <a href="{{ route('app.gastos.create') }}">Registrar gasto</a>
+                <a href="{{ route('app.ingresos.create') }}">
+                    @include('layouts.partials.icon', ['name' => 'arrow-up', 'class' => 'ui-icon'])
+                    Registrar ingreso
+                </a>
+                <a href="{{ route('app.gastos.create') }}">
+                    @include('layouts.partials.icon', ['name' => 'arrow-down', 'class' => 'ui-icon'])
+                    Registrar gasto
+                </a>
+                <a href="{{ route('app.pagos.index') }}">
+                    @include('layouts.partials.icon', ['name' => 'exchange', 'class' => 'ui-icon'])
+                    Transferencia o pago
+                </a>
             </div>
         </div>
         <div class="offcanvas offcanvas-bottom more-sheet" tabindex="-1" id="more-sheet" aria-labelledby="more-sheet-title">
@@ -185,6 +195,7 @@
             <div class="offcanvas-body">
                 <p class="eyebrow mb-2">Tesorería</p>
                 <a href="{{ route('app.cuentas.index') }}">Cuentas</a>
+                <a href="{{ route('app.pagos.index') }}">Transferencias y pagos</a>
                 <p class="eyebrow mb-2 mt-3">Deudas</p>
                 <a href="{{ route('app.deudas.index') }}">Créditos y deudas</a>
                 <a href="{{ route('app.tarjetas.index') }}">Tarjetas</a>
