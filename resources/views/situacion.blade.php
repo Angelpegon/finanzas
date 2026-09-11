@@ -1,13 +1,20 @@
 @extends('layouts.app', [
-    'title' => 'Dashboard',
-    'heading' => 'Dashboard',
-    'subtitle' => 'Resumen de tu situación financiera',
+    'title' => 'Situación',
+    'heading' => 'Situación',
+    'subtitle' => 'Resumen del mes seleccionado',
 ])
 @section('header-utils')
-    <div class="dashboard-period d-none d-md-inline-flex" role="status">
-        @include('layouts.partials.icon', ['name' => 'calendar', 'class' => 'ui-icon ui-icon--sm'])
-        <span>Mes actual</span>
-    </div>
+    <nav class="dashboard-period d-none d-md-inline-flex" aria-label="Mes del resumen">
+        <a class="dashboard-period__nav" href="{{ route('app.situacion', ['anio' => $mesAnterior->year, 'mes' => $mesAnterior->month]) }}" aria-label="Mes anterior">‹</a>
+        <span class="dashboard-period__label">
+            @include('layouts.partials.icon', ['name' => 'calendar', 'class' => 'ui-icon ui-icon--sm'])
+            <span>{{ $situacion['periodo_etiqueta'] }}</span>
+        </span>
+        <a class="dashboard-period__nav" href="{{ route('app.situacion', ['anio' => $mesSiguiente->year, 'mes' => $mesSiguiente->month]) }}" aria-label="Mes siguiente">›</a>
+        @unless($esMesActual)
+            <a class="dashboard-period__today" href="{{ route('app.situacion') }}">Hoy</a>
+        @endunless
+    </nav>
 @endsection
 @section('content')
 @php
@@ -36,7 +43,20 @@
     $varGastos = $fmtVar($v['gastos_porcentaje'] ?? null, false);
     $varPagos = $fmtVar($v['pagos_deuda_porcentaje'] ?? null, false);
     $varDisponible = $fmtVar($v['disponible_porcentaje'] ?? null, true);
+    $deudas = $situacion['deudas'] ?? [];
 @endphp
+
+<nav class="dashboard-period-bar d-md-none" aria-label="Mes del resumen">
+    <a class="dashboard-period__nav" href="{{ route('app.situacion', ['anio' => $mesAnterior->year, 'mes' => $mesAnterior->month]) }}" aria-label="Mes anterior">‹</a>
+    <span class="dashboard-period__label">
+        @include('layouts.partials.icon', ['name' => 'calendar', 'class' => 'ui-icon ui-icon--sm'])
+        <span>{{ $situacion['periodo_etiqueta'] }}</span>
+    </span>
+    <a class="dashboard-period__nav" href="{{ route('app.situacion', ['anio' => $mesSiguiente->year, 'mes' => $mesSiguiente->month]) }}" aria-label="Mes siguiente">›</a>
+    @unless($esMesActual)
+        <a class="dashboard-period__today" href="{{ route('app.situacion') }}">Hoy</a>
+    @endunless
+</nav>
 
 <div class="dashboard">
     <div class="dashboard-main">
@@ -76,7 +96,7 @@
             </article>
             <article class="kpi-card kpi-card--blue">
                 <div class="kpi-card__top">
-                    <span class="kpi-card__label">Disponible</span>
+                    <span class="kpi-card__label">Disponible libre</span>
                     <span class="kpi-card__icon">@include('layouts.partials.icon', ['name' => 'banknote', 'class' => 'ui-icon'])</span>
                 </div>
                 <strong class="kpi-card__value">@cop($situacion['dinero_disponible_real_centavos'])</strong>
@@ -84,14 +104,15 @@
                     @if($varDisponible['icono'])@include('layouts.partials.icon', ['name' => $varDisponible['icono'], 'class' => 'ui-icon ui-icon--xs'])@endif
                     {{ $varDisponible['texto'] }}
                 </span>
+                <small class="kpi-card__hint">Excluye @cop($situacion['reservado_metas_centavos']) en bolsillos de meta y compromisos del mes</small>
             </article>
         </div>
 
-        <div class="dash-row dash-row--3">
+        <div class="dash-row dash-row--2">
             <section class="dash-card">
                 <div class="dash-card__head">
                     <h2>Próximos pagos</h2>
-                    <a href="{{ route('app.calendario') }}">Ver todo</a>
+                    <a href="{{ route('app.calendario', ['anio' => $mesRef->year, 'mes' => $mesRef->month]) }}">Ver todo</a>
                 </div>
                 <div class="dash-list">
                     @forelse($situacion['proximos_vencimientos'] as $evento)
@@ -103,7 +124,11 @@
                         <div class="dash-list__row">
                             <span class="dash-list__icon dash-list__icon--amber">@include('layouts.partials.icon', ['name' => 'file-invoice', 'class' => 'ui-icon ui-icon--sm'])</span>
                             <div class="dash-list__body">
-                                <strong>{{ $nombre }}</strong>
+                                <strong>
+                                    <a href="{{ route('app.calendario', ['anio' => $evento->fecha_vencimiento->year, 'mes' => $evento->fecha_vencimiento->month, 'dia' => $evento->fecha_vencimiento->toDateString()]) }}">
+                                        {{ $nombre }}
+                                    </a>
+                                </strong>
                                 <small>Cuota {{ $evento->numero }} · {{ $evento->fecha_vencimiento->format('d M') }}</small>
                             </div>
                             <strong class="dash-list__amount text-danger">@cop($evento->total_centavos)</strong>
@@ -137,69 +162,50 @@
                     @endforelse
                 </div>
             </section>
-
-            <section class="dash-card">
-                <div class="dash-card__head">
-                    <h2>Metas de ahorro</h2>
-                    <a href="{{ route('app.metas.index') }}">Ver metas</a>
-                </div>
-                <div class="dash-list">
-                    @forelse($situacion['metas'] as $meta)
-                        <div class="goal-row">
-                            <div class="d-flex justify-content-between gap-2">
-                                <div>
-                                    <strong>{{ $meta->nombre }}</strong>
-                                    <small class="d-block text-secondary">@cop($meta->progreso_centavos) / @cop($meta->objetivo_centavos)</small>
-                                </div>
-                                <span>{{ $meta->porcentaje_completado }}%</span>
-                            </div>
-                            <div class="progress progress--thin mt-2">
-                                <div class="progress-bar bg-info" style="width: {{ min(100, $meta->porcentaje_completado) }}%"></div>
-                            </div>
-                        </div>
-                    @empty
-                        <p class="text-secondary mb-0">Sin metas activas. <a href="{{ route('app.metas.index') }}">Crear meta</a></p>
-                    @endforelse
-                </div>
-            </section>
         </div>
 
         <div class="dash-row dash-row--2">
             <section class="dash-card">
                 <div class="dash-card__head">
-                    <h2>Detalle de deuda</h2>
-                    @if(($situacion['detalle_deuda']['tipo'] ?? null) === 'tarjeta')
-                        <a href="{{ route('app.tarjetas.index') }}">Tarjetas</a>
-                    @else
-                        <a href="{{ route('app.deudas.index') }}">Deudas</a>
-                    @endif
+                    <h2>Deudas</h2>
+                    <a href="{{ route('app.deudas.index') }}">Ver todas</a>
                 </div>
-                @if($situacion['detalle_deuda'] ?? null)
-                    @php $d = $situacion['detalle_deuda']; @endphp
-                    <div class="debt-detail">
-                        <div class="d-flex justify-content-between align-items-start gap-2 mb-3">
-                            <div class="d-flex align-items-center gap-2">
-                                <span class="dash-list__icon dash-list__icon--amber">@include('layouts.partials.icon', ['name' => 'credit-card', 'class' => 'ui-icon ui-icon--sm'])</span>
-                                <div>
-                                    <strong>{{ $d['nombre'] }}</strong>
-                                    <small class="d-block text-secondary text-capitalize">{{ $d['tipo'] }}</small>
+                @if(count($deudas) > 0)
+                    <div class="debt-carousel" data-debt-carousel data-interval="5000">
+                        @foreach($deudas as $index => $d)
+                            <div class="debt-detail" data-debt-slide @if($index > 0) hidden @endif>
+                                <div class="d-flex justify-content-between align-items-start gap-2 mb-3">
+                                    <div class="d-flex align-items-center gap-2 min-w-0">
+                                        <span class="dash-list__icon dash-list__icon--amber">@include('layouts.partials.icon', ['name' => 'credit-card', 'class' => 'ui-icon ui-icon--sm'])</span>
+                                        <div class="min-w-0">
+                                            <strong class="d-block text-truncate">{{ $d['nombre'] }}</strong>
+                                            <small class="d-block text-secondary text-capitalize">{{ $d['tipo'] }}</small>
+                                        </div>
+                                    </div>
+                                    <span class="status-pill">{{ $d['estado'] }}</span>
+                                </div>
+                                <p class="debt-detail__saldo mb-1">@cop($d['saldo_centavos'])</p>
+                                <small class="text-secondary">Saldo actual · {{ $d['avance_porcentaje'] }}% avanzado</small>
+                                <div class="progress progress--thin mt-2 mb-3">
+                                    <div class="progress-bar bg-warning" style="width: {{ min(100, max(0, $d['avance_porcentaje'])) }}%"></div>
+                                </div>
+                                <div class="debt-detail__stats">
+                                    <div><span>Cuota</span><strong>@cop($d['cuota_centavos'])</strong></div>
+                                    <div><span>Tasa EA</span><strong>{{ number_format($d['ea_porcentaje'], 2, ',', '.') }}%</strong></div>
+                                    @if($d['cuotas_pagadas'] !== null)
+                                        <div><span>Cuotas</span><strong>{{ $d['cuotas_pagadas'] }}/{{ $d['cuotas_total'] }}</strong></div>
+                                    @endif
+                                    <div><span>Próximo pago</span><strong>{{ $d['proximo_pago'] ? \Carbon\Carbon::parse($d['proximo_pago'])->format('d/m/Y') : '—' }}</strong></div>
                                 </div>
                             </div>
-                            <span class="status-pill">{{ $d['estado'] }}</span>
-                        </div>
-                        <p class="debt-detail__saldo mb-1">@cop($d['saldo_centavos'])</p>
-                        <small class="text-secondary">Saldo actual · {{ $d['avance_porcentaje'] }}% avanzado</small>
-                        <div class="progress progress--thin mt-2 mb-3">
-                            <div class="progress-bar bg-warning" style="width: {{ min(100, $d['avance_porcentaje']) }}%"></div>
-                        </div>
-                        <div class="debt-detail__stats">
-                            <div><span>Cuota</span><strong>@cop($d['cuota_centavos'])</strong></div>
-                            <div><span>Tasa EA</span><strong>{{ number_format($d['ea_porcentaje'], 2, ',', '.') }}%</strong></div>
-                            @if($d['cuotas_pagadas'] !== null)
-                                <div><span>Cuotas</span><strong>{{ $d['cuotas_pagadas'] }}/{{ $d['cuotas_total'] }}</strong></div>
-                            @endif
-                            <div><span>Próximo pago</span><strong>{{ $d['proximo_pago'] ? \Carbon\Carbon::parse($d['proximo_pago'])->format('d/m/Y') : '—' }}</strong></div>
-                        </div>
+                        @endforeach
+                        @if(count($deudas) > 1)
+                            <div class="debt-carousel__dots" role="tablist" aria-label="Deudas">
+                                @foreach($deudas as $index => $d)
+                                    <button type="button" class="debt-carousel__dot {{ $index === 0 ? 'is-active' : '' }}" data-debt-dot="{{ $index }}" aria-label="{{ $d['nombre'] }}"></button>
+                                @endforeach
+                            </div>
+                        @endif
                     </div>
                 @else
                     <p class="text-secondary mb-0">No tienes deudas activas con saldo.</p>
@@ -209,7 +215,7 @@
             <section class="dash-card">
                 <div class="dash-card__head">
                     <h2>Calendario financiero</h2>
-                    <a href="{{ route('app.calendario') }}">{{ $situacion['calendario_grilla']['etiqueta'] ?? '' }}</a>
+                    <a href="{{ route('app.calendario', ['anio' => $mesRef->year, 'mes' => $mesRef->month]) }}">{{ $situacion['calendario_grilla']['etiqueta'] ?? '' }}</a>
                 </div>
                 <div class="mini-cal">
                     <div class="mini-cal__weekdays">
@@ -222,15 +228,20 @@
                             @if($celda === null)
                                 <div class="mini-cal__cell mini-cal__cell--empty"></div>
                             @else
-                                <div class="mini-cal__cell {{ $celda['hoy'] ? 'is-today' : '' }} {{ $celda['tiene_pago'] ? 'has-pago' : '' }} {{ $celda['tiene_ingreso'] ? 'has-ingreso' : '' }}" title="{{ collect($celda['eventos'])->pluck('descripcion')->join(' · ') }}">
+                                <a
+                                    class="mini-cal__cell {{ $celda['hoy'] ? 'is-today' : '' }} {{ $celda['tiene_pago'] ? 'has-pago' : '' }} {{ $celda['tiene_ingreso'] ? 'has-ingreso' : '' }} {{ ($celda['tiene_vencido'] ?? false) ? 'has-vencido' : '' }}"
+                                    href="{{ route('app.calendario', ['anio' => $mesRef->year, 'mes' => $mesRef->month, 'dia' => $celda['fecha']]) }}"
+                                    title="{{ collect($celda['eventos'])->pluck('descripcion')->join(' · ') ?: 'Sin eventos' }}"
+                                >
                                     <span class="mini-cal__day">{{ $celda['dia'] }}</span>
                                     @if(count($celda['eventos']) > 0)
                                         <span class="mini-cal__dots">
                                             @if($celda['tiene_ingreso'])<i class="dot dot--green"></i>@endif
                                             @if($celda['tiene_pago'])<i class="dot dot--red"></i>@endif
+                                            @if($celda['tiene_vencido'] ?? false)<i class="dot dot--amber"></i>@endif
                                         </span>
                                     @endif
-                                </div>
+                                </a>
                             @endif
                         @endforeach
                     </div>
@@ -242,7 +253,7 @@
     <aside class="dashboard-rail">
         <section class="dash-card">
             <div class="dash-card__head">
-                <h2>Cuentas</h2>
+                <h2>Cuentas operativas</h2>
                 <a class="btn-chip" href="{{ route('app.cuentas.create') }}">+ Nueva</a>
             </div>
             <div class="dash-list">
@@ -261,7 +272,7 @@
             </div>
             @if(($situacion['cuentas'] ?? collect())->isNotEmpty())
                 <div class="rail-total">
-                    <span>Total en cuentas</span>
+                    <span>Total operativo</span>
                     <strong>@cop($situacion['total_cuentas_centavos'])</strong>
                 </div>
             @endif
@@ -303,11 +314,9 @@
                 <a href="{{ route('app.ingresos.create') }}" class="quick-tile quick-tile--green"><span>@include('layouts.partials.icon', ['name' => 'arrow-up', 'class' => 'ui-icon'])</span>Nuevo ingreso</a>
                 <a href="{{ route('app.gastos.create') }}" class="quick-tile quick-tile--red"><span>@include('layouts.partials.icon', ['name' => 'arrow-down', 'class' => 'ui-icon'])</span>Nuevo gasto</a>
                 <a href="{{ route('app.pagos.index') }}" class="quick-tile quick-tile--purple"><span>@include('layouts.partials.icon', ['name' => 'exchange', 'class' => 'ui-icon'])</span>Transferencia</a>
-                <a href="{{ route('app.metas.index') }}" class="quick-tile quick-tile--blue"><span>@include('layouts.partials.icon', ['name' => 'piggy-bank', 'class' => 'ui-icon'])</span>Nueva meta</a>
+                <a href="{{ route('app.pagos.index', ['pago' => 1]) }}" class="quick-tile quick-tile--green"><span>@include('layouts.partials.icon', ['name' => 'banknote', 'class' => 'ui-icon'])</span>Nuevo pago</a>
                 <a href="{{ route('app.presupuestos.index') }}" class="quick-tile quick-tile--amber"><span>@include('layouts.partials.icon', ['name' => 'percent', 'class' => 'ui-icon'])</span>Presupuesto</a>
                 <a href="{{ route('app.deudas.create') }}" class="quick-tile quick-tile--amber"><span>@include('layouts.partials.icon', ['name' => 'file-invoice', 'class' => 'ui-icon'])</span>Nuevo crédito</a>
-                <a href="{{ route('app.pagos.index') }}" class="quick-tile quick-tile--green"><span>@include('layouts.partials.icon', ['name' => 'banknote', 'class' => 'ui-icon'])</span>Nuevo pago</a>
-                <a href="{{ route('app.proyecciones') }}" class="quick-tile quick-tile--purple"><span>@include('layouts.partials.icon', ['name' => 'chart-line', 'class' => 'ui-icon'])</span>Proyecciones</a>
             </div>
         </section>
     </aside>

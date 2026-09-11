@@ -2,12 +2,14 @@
 
 namespace App\Services;
 
+use App\Models\Asiento;
 use App\Models\CuentaContable;
 use App\Models\CuentaLiquida;
 use App\Models\CuotaPrestamo;
 use App\Models\Pago;
 use App\Models\Prestamo;
 use App\Support\AmortizacionFrancesa;
+use App\Support\CuentasOperativas;
 use App\Support\Tasa;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -29,13 +31,16 @@ class PrestamoService
         string $tipoObligacion = 'prestamo_bancario',
         string $tipoTasa = 'ea',
         string $periodicidad = 'mensual',
-        ?string $fechaVencimiento = null
-        ,string $metodoAmortizacion = 'frances',
+        ?string $fechaVencimiento = null,
+        string $metodoAmortizacion = 'frances',
         int $seguroCentavos = 0,
         int $otrosCargosCentavos = 0
     ): Prestamo {
         if ($principalCentavos <= 0 || $plazoMeses < 1 || $diaPago < 1 || $diaPago > 31) {
             throw new \InvalidArgumentException('Los datos del préstamo no son válidos.');
+        }
+        if ($tipoObligacion === 'tarjeta_credito') {
+            throw new \InvalidArgumentException('Las tarjetas de crédito se registran en el módulo Tarjetas.');
         }
 
         return DB::transaction(function () use (
@@ -43,8 +48,7 @@ class PrestamoService
             $fechaDesembolso, $diaPago, $cuentaLiquidaId, $entidad, $tipoObligacion,
             $tipoTasa, $periodicidad, $fechaVencimiento, $metodoAmortizacion, $seguroCentavos, $otrosCargosCentavos
         ): Prestamo {
-            $liquida = CuentaLiquida::withoutGlobalScopes()
-                ->where('usuario_id', $usuarioId)->where('activa', true)->lockForUpdate()->findOrFail($cuentaLiquidaId);
+            $liquida = $this->cuentaOperativaBloqueada($usuarioId, $cuentaLiquidaId);
             $pasivo = CuentaContable::withoutGlobalScopes()->create([
                 'usuario_id' => $usuarioId,
                 'codigo' => $this->siguienteCodigoPasivo($usuarioId),
@@ -63,6 +67,7 @@ class PrestamoService
                 'principal_centavos' => $principalCentavos, 'ea_porcentaje' => $eaPorcentaje,
                 'plazo_meses' => $plazoMeses, 'fecha_desembolso' => $fechaDesembolso,
                 'dia_pago' => $diaPago, 'cuota_centavos' => $calendario[0]['cuota'],
+                'estado' => 'activa',
                 'entidad' => $entidad, 'tipo_obligacion' => $tipoObligacion,
                 'tipo_tasa' => $tipoTasa, 'periodicidad' => $periodicidad,
                 'metodo_amortizacion' => $metodoAmortizacion, 'seguro_centavos' => $seguroCentavos,
@@ -82,19 +87,26 @@ class PrestamoService
                 ['cuenta_contable_id' => $liquida->cuenta_contable_id, 'debe_centavos' => $principalCentavos, 'haber_centavos' => 0],
                 ['cuenta_contable_id' => $pasivo->id, 'debe_centavos' => 0, 'haber_centavos' => $principalCentavos],
             ]);
+
             return $prestamo->load('cuotas');
         });
     }
 
-    public function registrarPago(int $usuarioId, int $prestamoId, int $montoCentavos, string $fecha): Pago
-    {
+    public function registrarPago(
+        int $usuarioId,
+        int $prestamoId,
+        int $montoCentavos,
+        string $fecha,
+        ?int $cuentaLiquidaId = null
+    ): Pago {
         if ($montoCentavos <= 0) {
             throw new \InvalidArgumentException('El pago debe ser positivo.');
         }
 
-        return DB::transaction(function () use ($usuarioId, $prestamoId, $montoCentavos, $fecha): Pago {
+        return DB::transaction(function () use ($usuarioId, $prestamoId, $montoCentavos, $fecha, $cuentaLiquidaId): Pago {
             $prestamo = Prestamo::withoutGlobalScopes()->where('usuario_id', $usuarioId)->lockForUpdate()->findOrFail($prestamoId);
-            $liquida = CuentaLiquida::withoutGlobalScopes()->where('usuario_id', $usuarioId)->where('activa', true)->lockForUpdate()->findOrFail($prestamo->cuenta_liquida_id);
+            $cuentaId = $cuentaLiquidaId ?? (int) $prestamo->cuenta_liquida_id;
+            $liquida = $this->cuentaOperativaBloqueada($usuarioId, $cuentaId);
             $cuota = CuotaPrestamo::withoutGlobalScopes()
                 ->where('usuario_id', $usuarioId)->where('prestamo_id', $prestamo->id)
                 ->where('pagada', false)->orderBy('numero')->lockForUpdate()->first();
@@ -120,11 +132,45 @@ class PrestamoService
             if ($liquida->saldoCentavos() < $montoCentavos) {
                 throw new \InvalidArgumentException('Saldo insuficiente en la cuenta de pago.');
             }
+
+            $snapshot = null;
+            if ($extra > 0) {
+                $snapshot = CuotaPrestamo::withoutGlobalScopes()
+                    ->where('usuario_id', $usuarioId)
+                    ->where('prestamo_id', $prestamo->id)
+                    ->where('pagada', false)
+                    ->where('id', '<>', $cuota->id)
+                    ->orderBy('numero')
+                    ->get([
+                        'numero', 'fecha_vencimiento', 'capital_centavos', 'interes_centavos',
+                        'saldo_capital_centavos', 'seguro_centavos', 'otros_cargos_centavos', 'total_centavos',
+                    ])
+                    ->map(fn (CuotaPrestamo $c) => [
+                        'numero' => (int) $c->numero,
+                        'fecha_vencimiento' => $c->fecha_vencimiento?->toDateString(),
+                        'capital_centavos' => (int) $c->capital_centavos,
+                        'interes_centavos' => (int) $c->interes_centavos,
+                        'saldo_capital_centavos' => (int) $c->saldo_capital_centavos,
+                        'seguro_centavos' => (int) $c->seguro_centavos,
+                        'otros_cargos_centavos' => (int) $c->otros_cargos_centavos,
+                        'total_centavos' => (int) $c->total_centavos,
+                    ])
+                    ->values()
+                    ->all();
+            }
+
             $pago = Pago::withoutGlobalScopes()->create([
-                'usuario_id' => $usuarioId, 'tipo' => 'prestamo', 'prestamo_id' => $prestamo->id,
-                'cuenta_liquida_id' => $liquida->id, 'fecha' => $fecha, 'monto_centavos' => $montoCentavos,
+                'usuario_id' => $usuarioId,
+                'tipo' => 'prestamo',
+                'prestamo_id' => $prestamo->id,
+                'cuota_prestamo_id' => $cuota->id,
+                'cuenta_liquida_id' => $liquida->id,
+                'fecha' => $fecha,
+                'monto_centavos' => $montoCentavos,
                 'capital_centavos' => $capital + $extra,
                 'interes_centavos' => $interes,
+                'extraordinario' => $extra > 0,
+                'cronograma_snapshot' => $snapshot,
                 'descripcion' => $extra > 0
                     ? 'Pago de cuota '.$cuota->numero.' + abono extraordinario'
                     : 'Pago de cuota '.$cuota->numero,
@@ -145,6 +191,9 @@ class PrestamoService
             $cuota->update(['pagada' => true, 'pagada_en' => now()]);
             if ($extra > 0) {
                 $this->recalcularTrasAbonoExtra($prestamo, $extra, Carbon::parse($fecha));
+            } elseif (! CuotaPrestamo::withoutGlobalScopes()
+                ->where('prestamo_id', $prestamo->id)->where('pagada', false)->exists()) {
+                $prestamo->update(['estado' => 'cancelada']);
             }
 
             return $pago;
@@ -152,7 +201,103 @@ class PrestamoService
     }
 
     /**
-     * Regla documentada: abono extraordinario reduce el plazo y mantiene la cuota.
+     * Corrige el último pago del préstamo (reverso contable + reabrir cuota).
+     * Si hubo abono extra, restaura el cronograma desde el snapshot.
+     */
+    public function corregirPago(int $usuarioId, int $pagoId, string $fecha, string $motivo = 'Corrección de pago de préstamo'): void
+    {
+        DB::transaction(function () use ($usuarioId, $pagoId, $fecha, $motivo): void {
+            $pago = Pago::withoutGlobalScopes()
+                ->where('usuario_id', $usuarioId)
+                ->where('tipo', 'prestamo')
+                ->lockForUpdate()
+                ->findOrFail($pagoId);
+
+            if ($pago->prestamo_id === null || $pago->cuota_prestamo_id === null) {
+                throw new \InvalidArgumentException('Este pago no está vinculado a una cuota y no se puede corregir desde la UI.');
+            }
+
+            $ultimoId = (int) Pago::withoutGlobalScopes()
+                ->where('usuario_id', $usuarioId)
+                ->where('prestamo_id', $pago->prestamo_id)
+                ->where('tipo', 'prestamo')
+                ->orderByDesc('id')
+                ->value('id');
+            if ($ultimoId !== (int) $pago->id) {
+                throw new \InvalidArgumentException('Solo se puede corregir el último pago del préstamo.');
+            }
+
+            $asiento = Asiento::withoutGlobalScopes()
+                ->where('usuario_id', $usuarioId)
+                ->where('origen_tipo', Pago::class)
+                ->where('origen_id', $pago->id)
+                ->where('es_reverso', false)
+                ->firstOrFail();
+
+            if (Asiento::withoutGlobalScopes()
+                ->where('usuario_id', $usuarioId)
+                ->where('asiento_reversado_id', $asiento->id)
+                ->exists()) {
+                throw new \InvalidArgumentException('Este pago ya fue corregido.');
+            }
+
+            $this->contabilizacion->revertir($usuarioId, (int) $asiento->id, $fecha, $motivo);
+
+            $cuota = CuotaPrestamo::withoutGlobalScopes()
+                ->where('usuario_id', $usuarioId)
+                ->whereKey($pago->cuota_prestamo_id)
+                ->lockForUpdate()
+                ->firstOrFail();
+            $cuota->update(['pagada' => false, 'pagada_en' => null]);
+
+            $prestamo = Prestamo::withoutGlobalScopes()
+                ->where('usuario_id', $usuarioId)
+                ->whereKey($pago->prestamo_id)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            if ($pago->extraordinario) {
+                CuotaPrestamo::withoutGlobalScopes()
+                    ->where('usuario_id', $usuarioId)
+                    ->where('prestamo_id', $prestamo->id)
+                    ->where('pagada', false)
+                    ->where('id', '<>', $cuota->id)
+                    ->delete();
+
+                foreach ($pago->cronograma_snapshot ?? [] as $fila) {
+                    CuotaPrestamo::withoutGlobalScopes()->create([
+                        'usuario_id' => $usuarioId,
+                        'prestamo_id' => $prestamo->id,
+                        'numero' => (int) $fila['numero'],
+                        'fecha_vencimiento' => $fila['fecha_vencimiento'],
+                        'capital_centavos' => (int) $fila['capital_centavos'],
+                        'interes_centavos' => (int) $fila['interes_centavos'],
+                        'saldo_capital_centavos' => (int) $fila['saldo_capital_centavos'],
+                        'seguro_centavos' => (int) ($fila['seguro_centavos'] ?? 0),
+                        'otros_cargos_centavos' => (int) ($fila['otros_cargos_centavos'] ?? 0),
+                        'total_centavos' => (int) ($fila['total_centavos'] ?? 0),
+                        'pagada' => false,
+                        'pagada_en' => null,
+                    ]);
+                }
+            }
+
+            $plazo = (int) CuotaPrestamo::withoutGlobalScopes()->where('prestamo_id', $prestamo->id)->max('numero');
+            $vencimiento = CuotaPrestamo::withoutGlobalScopes()
+                ->where('prestamo_id', $prestamo->id)
+                ->orderByDesc('numero')
+                ->value('fecha_vencimiento');
+            $prestamo->update([
+                'estado' => 'activa',
+                'plazo_meses' => $plazo ?: $prestamo->plazo_meses,
+                'fecha_vencimiento' => $vencimiento ?: $prestamo->fecha_vencimiento,
+            ]);
+        });
+    }
+
+    /**
+     * Regla documentada: abono extraordinario reduce el plazo y mantiene la cuota (francés).
+     * En lineal / solo interés se recalcula el mismo número de cuotas pendientes con el saldo restante.
      */
     private function recalcularTrasAbonoExtra(Prestamo $prestamo, int $extraCentavos, Carbon $fechaPago): void
     {
@@ -216,9 +361,30 @@ class PrestamoService
             ]);
         }
         $prestamo->update([
+            'estado' => 'activa',
             'plazo_meses' => $numeroBase + count($calendario),
             'fecha_vencimiento' => end($calendario)['fecha'],
         ]);
+    }
+
+    private function cuentaOperativaBloqueada(int $usuarioId, int $cuentaLiquidaId): CuentaLiquida
+    {
+        $bolsillos = CuentasOperativas::idsBolsillosActivos($usuarioId);
+        if (in_array($cuentaLiquidaId, $bolsillos, true)) {
+            throw new \InvalidArgumentException('No uses un bolsillo de meta en préstamos; elige una cuenta operativa.');
+        }
+
+        $liquida = CuentaLiquida::withoutGlobalScopes()
+            ->where('usuario_id', $usuarioId)
+            ->where('activa', true)
+            ->where('estado', 'activa')
+            ->lockForUpdate()
+            ->find($cuentaLiquidaId);
+        if (! $liquida) {
+            throw new \InvalidArgumentException('La cuenta de pago debe ser operativa y activa.');
+        }
+
+        return $liquida;
     }
 
     private function siguienteCodigoPasivo(int $usuarioId): string

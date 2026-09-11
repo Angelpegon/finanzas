@@ -51,9 +51,9 @@ class ObligacionesYMetasTest extends TestCase
         );
         $liqAntes = $cuenta->fresh()->saldoCentavos();
         $cat = Categoria::withoutGlobalScopes()->where('usuario_id', $user->id)->where('tipo', 'gasto')->firstOrFail();
-        $tarjeta = app(TarjetaService::class)->crear($user->id, 'Visa', 2_000_000_00, 5, 20, 30);
+        $tarjeta = app(TarjetaService::class)->crear($user->id, 'Visa', 2_000_000_00, 5, 20, 1.5, 3.0);
         $compra = app(TarjetaService::class)->registrarCompra(
-            $user->id, $tarjeta->id, 300_000_00, 3, now()->toDateString(), $cat->id, 'TV', 1.5
+            $user->id, $tarjeta->id, 300_000_00, 3, now()->toDateString(), 'compra', $cat->id, null, 'TV'
         );
 
         $this->assertSame($liqAntes, $cuenta->fresh()->saldoCentavos());
@@ -147,5 +147,49 @@ class ObligacionesYMetasTest extends TestCase
             $origen->id,
             'sacar del bolsillo a mano'
         );
+    }
+
+    public function test_aporte_desde_bolsillo_de_otra_meta_se_rechaza(): void
+    {
+        $user = $this->usuarioConCatalogo();
+        $origen = CuentaLiquida::withoutGlobalScopes()->where('usuario_id', $user->id)->firstOrFail();
+        app(TesoreriaService::class)->registrar(
+            $user->id, TipoHechoTesoreria::Apertura, now()->toDateString(), 500_000_00, $origen->id
+        );
+        $meta1 = app(MetaAhorroService::class)->crear($user->id, 'A', 100_000_00, null, 0, $origen->id);
+        $meta2 = app(MetaAhorroService::class)->crear($user->id, 'B', 100_000_00, null, 0, $origen->id);
+        app(MetaAhorroService::class)->aportar($user->id, $meta1->id, 50_000_00, $origen->id, now()->toDateString());
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessageMatches('/operativa|bolsillo/i');
+
+        app(MetaAhorroService::class)->aportar(
+            $user->id,
+            $meta2->id,
+            20_000_00,
+            (int) $meta1->cuenta_liquida_id,
+            now()->toDateString()
+        );
+    }
+
+    public function test_retiro_reduce_avance_y_bolsillo_sigue_no_operativo(): void
+    {
+        $user = $this->usuarioConCatalogo();
+        $origen = CuentaLiquida::withoutGlobalScopes()->where('usuario_id', $user->id)->firstOrFail();
+        app(TesoreriaService::class)->registrar(
+            $user->id, TipoHechoTesoreria::Apertura, now()->toDateString(), 500_000_00, $origen->id
+        );
+        $meta = app(MetaAhorroService::class)->crear($user->id, 'Viaje', 200_000_00, null, 0, $origen->id);
+        app(MetaAhorroService::class)->aportar($user->id, $meta->id, 100_000_00, $origen->id, now()->toDateString());
+        $bolsilloId = (int) $meta->cuenta_liquida_id;
+
+        app(MetaAhorroService::class)->retirar(
+            $user->id, $meta->id, 40_000_00, $origen->id, now()->toDateString()
+        );
+
+        $this->assertSame(60_000_00, $meta->fresh()->progreso_centavos);
+        $this->assertSame(60_000_00, $meta->fresh()->cuentaLiquida->saldoCentavos());
+        $this->assertContains($bolsilloId, \App\Support\CuentasOperativas::idsBolsillosMetas($user->id));
+        $this->assertSame('activa', $meta->fresh()->estado);
     }
 }

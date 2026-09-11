@@ -7,10 +7,17 @@
 ])
 @section('content')
 <div class="capture-flow">
-    <p class="capture-hint"><strong>Desembolso real:</strong> al guardar, el monto entra a tu cuenta y nace el cronograma de cuotas.</p>
+    @if($cuentas->isEmpty())
+        <div class="alert alert-light empty-state">
+            Necesitas una cuenta operativa antes de registrar un desembolso.
+            <a href="{{ route('app.cuentas.create') }}">Crear cuenta</a>.
+        </div>
+    @else
+    <p class="capture-hint"><strong>Desembolso real:</strong> al guardar, el monto entra a tu cuenta y nace el cronograma de cuotas. Las tarjetas se gestionan en <a href="{{ route('app.tarjetas.create') }}">Tarjetas</a>.</p>
     @include('layouts.partials.form-errors')
     <form method="POST" action="{{ route('app.deudas.store') }}" class="dash-card form-panel" novalidate>
         @csrf
+        <input type="hidden" name="idempotency_key" value="{{ old('idempotency_key', $idempotencyKey) }}">
 
         <div class="money-hero">
             <label class="form-label" for="monto_inicial">Monto inicial</label>
@@ -36,8 +43,8 @@
             <div>
                 <label class="form-label" for="tipo_obligacion">Tipo</label>
                 <select id="tipo_obligacion" name="tipo_obligacion" class="form-select form-select-lg @error('tipo_obligacion') is-invalid @enderror" required>
-                    @foreach(['prestamo_bancario'=>'Préstamo bancario','credito'=>'Crédito','tarjeta_credito'=>'Tarjeta de crédito','prestamo_personal'=>'Préstamo personal','compra_financiada'=>'Compra financiada','deuda_informal'=>'Deuda informal','otra_obligacion'=>'Otra obligación'] as $v=>$t)
-                        <option value="{{ $v }}" @selected(old('tipo_obligacion') === $v)>{{ $t }}</option>
+                    @foreach(['prestamo_bancario'=>'Préstamo bancario','credito'=>'Crédito','prestamo_personal'=>'Préstamo personal','compra_financiada'=>'Compra financiada','deuda_informal'=>'Deuda informal','otra_obligacion'=>'Otra obligación'] as $v=>$t)
+                        <option value="{{ $v }}" @selected(old('tipo_obligacion', 'prestamo_bancario') === $v)>{{ $t }}</option>
                     @endforeach
                 </select>
                 @include('layouts.partials.field-error', ['name' => 'tipo_obligacion'])
@@ -100,13 +107,18 @@
                     @include('layouts.partials.field-error', ['name' => 'fecha_inicio'])
                 </div>
                 <div class="col-6">
-                    <label class="form-label" for="fecha_vencimiento">Vencimiento</label>
+                    <label class="form-label" for="fecha_vencimiento">Vencimiento <span class="text-secondary">(opcional)</span></label>
                     <input id="fecha_vencimiento" name="fecha_vencimiento" type="date" value="{{ old('fecha_vencimiento') }}" class="form-control form-control-lg @error('fecha_vencimiento') is-invalid @enderror">
                     @include('layouts.partials.field-error', ['name' => 'fecha_vencimiento'])
                 </div>
             </div>
             <div class="row g-3">
-                <div class="col-7">
+                <div class="col-4">
+                    <label class="form-label" for="dia_pago">Día de pago</label>
+                    <input id="dia_pago" name="dia_pago" value="{{ old('dia_pago', now()->day) }}" type="number" min="1" max="31" class="form-control form-control-lg @error('dia_pago') is-invalid @enderror" required>
+                    @include('layouts.partials.field-error', ['name' => 'dia_pago'])
+                </div>
+                <div class="col-4">
                     <label class="form-label" for="periodicidad">Periodicidad</label>
                     <select id="periodicidad" name="periodicidad" class="form-select form-select-lg @error('periodicidad') is-invalid @enderror" required>
                         @foreach(['mensual'=>'Mensual','quincenal'=>'Quincenal','semanal'=>'Semanal','anual'=>'Anual'] as $v=>$t)
@@ -115,7 +127,7 @@
                     </select>
                     @include('layouts.partials.field-error', ['name' => 'periodicidad'])
                 </div>
-                <div class="col-5">
+                <div class="col-4">
                     <label class="form-label" for="numero_cuotas">Cuotas</label>
                     <input id="numero_cuotas" name="numero_cuotas" value="{{ old('numero_cuotas', 12) }}" type="number" min="1" class="form-control form-control-lg @error('numero_cuotas') is-invalid @enderror" required>
                     @include('layouts.partials.field-error', ['name' => 'numero_cuotas'])
@@ -137,5 +149,6 @@
             <button class="btn btn-primary btn-lg w-100" type="submit">Guardar obligación</button>
         </div>
     </form>
+    @endif
 </div>
 @endsection

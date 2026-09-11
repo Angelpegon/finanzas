@@ -1,15 +1,15 @@
 @php
-    $saldo = (int) $cuenta->saldo_actual_centavos;
+    $saldo = (int) ($saldo ?? $cuenta->saldo_actual_centavos);
 @endphp
 <form method="POST" action="{{ route('app.cuentas.cancelar', $cuenta) }}" class="cancel-account" novalidate
     data-swal-confirm
     data-swal-title="¿Cancelar esta cuenta?"
-    data-swal-text="{{ $saldo > 0 ? 'Se aplicará la opción elegida sobre el saldo y la cuenta quedará cancelada.' : 'La cuenta dejará de estar disponible. El historial no se borra.' }}"
+    data-swal-text="{{ $saldo > 0 ? 'Se aplicará la opción elegida sobre el saldo y la cuenta desaparecerá de la app.' : 'La cuenta desaparecerá de la app. El historial contable no se borra.' }}"
     data-swal-icon="warning"
     data-swal-confirm-text="Cancelar cuenta">
     @csrf
     <p class="small text-secondary mb-2">
-        Cancelar es permanente: la cuenta deja de usarse. El historial del libro se conserva.
+        Cancelar es permanente en la UI: la cuenta deja de aparecer. El libro append-only se conserva.
     </p>
     @if ($saldo > 0)
         <p class="small mb-2">Saldo actual: <strong>@cop($saldo)</strong>. Elige qué hacer con ese dinero:</p>

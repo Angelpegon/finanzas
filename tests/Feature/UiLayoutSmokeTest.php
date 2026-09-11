@@ -53,11 +53,11 @@ class UiLayoutSmokeTest extends TestCase
         $pagos->assertOk();
         $pagos->assertSee('flow-tabs', false);
         $pagos->assertSee('list-block', false);
-        $pagos->assertSee('Transferir');
+        $pagos->assertSee('Entre mis cuentas');
 
         $pagosPago = $this->actingAs($user)->get(route('app.pagos.index', ['pago' => 1]));
         $pagosPago->assertOk();
-        $pagosPago->assertSee('Registrar un pago');
+        $pagosPago->assertSee('Pagar a un tercero');
 
         $metas = $this->actingAs($user)->get(route('app.metas.index'));
         $metas->assertOk();
@@ -78,6 +78,16 @@ class UiLayoutSmokeTest extends TestCase
         $cuentas->assertSee('list-block', false);
         $cuentas->assertSee('Activas');
 
+        $ingresos = $this->actingAs($user)->get(route('app.ingresos.index'));
+        $ingresos->assertOk();
+        $ingresos->assertSee('list-block', false);
+        $ingresos->assertSee('Nuevo ingreso');
+
+        $gastos = $this->actingAs($user)->get(route('app.gastos.index'));
+        $gastos->assertOk();
+        $gastos->assertSee('list-block', false);
+        $gastos->assertSee('Nuevo gasto');
+
         $deudas = $this->actingAs($user)->get(route('app.deudas.index'));
         $deudas->assertOk();
         $deudas->assertSee('list-block', false);
@@ -85,6 +95,8 @@ class UiLayoutSmokeTest extends TestCase
         $tarjetas = $this->actingAs($user)->get(route('app.tarjetas.index'));
         $tarjetas->assertOk();
         $tarjetas->assertSee('list-block', false);
+        $tarjetas->assertSee('Nueva tarjeta');
+        $tarjetas->assertSee('page-toolbar', false);
     }
 
     public function test_css_compilado_incluye_utilidades_responsive_nuevas(): void

@@ -25,6 +25,9 @@ class CalendarioUiTest extends TestCase
         $response->assertSee('Vencidos');
         $response->assertSee('Proyectados');
         $response->assertSee('Reales');
+        $response->assertSee('Ingresos reales');
+        $response->assertSee('Salidas reales');
+        $response->assertSee('Compromisos');
 
         Carbon::setTestNow();
     }

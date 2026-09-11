@@ -3,6 +3,7 @@
 namespace App\Http\Requests;
 
 use App\Http\Requests\Concerns\MensajesFormulario;
+use App\Support\CuentasOperativas;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -22,6 +23,8 @@ class IngresoRequest extends FormRequest
 
     public function rules(): array
     {
+        $recurrente = $this->boolean('recurrente');
+
         return [
             'monto' => ['required', 'numeric', 'gt:0'],
             'fecha' => ['required', 'date'],
@@ -33,11 +36,26 @@ class IngresoRequest extends FormRequest
             'cuenta_liquida_id' => [
                 'required',
                 'integer',
-                \App\Support\CuentasOperativas::reglaExistsActiva($this->user()->id),
+                CuentasOperativas::reglaExistsActiva($this->user()->id),
             ],
             'descripcion' => ['nullable', 'string', 'max:255'],
-            'periodicidad' => ['required', 'in:unico,diario,semanal,quincenal,mensual,anual'],
             'recurrente' => ['nullable', 'boolean'],
+            'recibido' => ['nullable', 'boolean'],
+            'periodicidad' => [
+                Rule::requiredIf($recurrente),
+                'nullable',
+                Rule::in(['diario', 'semanal', 'quincenal', 'mensual', 'anual']),
+            ],
+            'idempotency_key' => ['required', 'string', 'max:64', 'regex:/^[A-Za-z0-9_-]+$/'],
+        ];
+    }
+
+    protected function mensajesExtra(): array
+    {
+        return [
+            'periodicidad.required' => 'Elige cada cuánto se repite el ingreso.',
+            'periodicidad.in' => 'La periodicidad recurrente no puede ser única.',
+            'idempotency_key.required' => 'Recarga el formulario e intenta de nuevo.',
         ];
     }
 }

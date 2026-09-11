@@ -1,83 +1,50 @@
+import {
+    aplicarFormatoMilesEnInput,
+    formatearMiles,
+    manejarBeforeInputMiles,
+    manejarKeydownMiles,
+    valorParaEnviar,
+} from './miles.js';
+
 const $ = window.jQuery;
 
-const yaNormalizadoParaEnvio = (valor) => /^-?\d+(\.\d{1,2})?$/.test(String(valor ?? '').trim());
-
-const formatearMiles = (valor) => {
-    const crudo = String(valor ?? '').trim();
-    if (crudo === '' || crudo === '-') {
-        return '';
-    }
-
-    let limpio = crudo.replace(/[^\d,.-]/g, '');
-    const negativo = limpio.startsWith('-') ? '-' : '';
-    limpio = limpio.replace(/-/g, '').replace(/\./g, '');
-    if (!crudo.includes(',') && /^\d+\.\d{1,2}$/.test(crudo)) {
-        const decimal = crudo.split('.');
-        limpio = `${decimal[0]},${decimal[1]}`;
-    }
-    const partes = limpio.split(',');
-    const soloDigitos = (partes.shift() || '').replace(/\D/g, '');
-    if (soloDigitos === '' && partes.length === 0) {
-        return negativo === '-' ? '-' : '';
-    }
-    const entero = soloDigitos.replace(/^0+(?=\d)/, '') || '0';
-    const decimal = partes.length ? `,${partes.join('').slice(0, 2)}` : '';
-
-    return `${negativo}${entero.replace(/\B(?=(\d{3})+(?!\d))/g, '.')}${decimal}`;
-};
-
-const valorParaEnviar = (valor) => {
-    const crudo = String(valor ?? '').trim();
-    if (crudo === '' || crudo === '-') {
-        return '';
-    }
-    if (yaNormalizadoParaEnvio(crudo)) {
-        return crudo;
-    }
-
-    return crudo.replace(/\./g, '').replace(',', '.');
-};
-
-const digitosAntesDeCursor = (valor, cursor) => String(valor).slice(0, cursor).replace(/\D/g, '').length;
-
-const posicionTrasDigitos = (valor, digitos) => {
-    if (digitos <= 0) {
-        return 0;
-    }
-    let vistos = 0;
-    for (let i = 0; i < valor.length; i += 1) {
-        if (/\d/.test(valor[i])) {
-            vistos += 1;
-            if (vistos === digitos) {
-                return i + 1;
-            }
-        }
-    }
-
-    return valor.length;
-};
-
 if ($) {
+    const normalizarMilesDelForm = (form) => {
+        form.querySelectorAll('[data-miles]').forEach((input) => {
+            input.value = valorParaEnviar(input.value);
+        });
+    };
+
+    // keydown: más fiable que beforeinput en algunos WebKit/iOS PWA.
+    $(document).on('keydown', '[data-miles]', function (evento) {
+        if (manejarKeydownMiles(evento.originalEvent || evento, this)) {
+            evento.preventDefault();
+        }
+    });
+
+    $(document).on('beforeinput', '[data-miles]', function (evento) {
+        const nativo = evento.originalEvent;
+        if (manejarBeforeInputMiles(nativo, this)) {
+            evento.preventDefault();
+        }
+    });
+
+    $(document).on('input', '[data-miles]', function () {
+        aplicarFormatoMilesEnInput(this);
+    });
+
     $('[data-miles]').each(function () {
-        const $input = $(this);
-        $input.val(formatearMiles($input.val()));
-        $input.on('input', function () {
-            const el = this;
-            const digitos = digitosAntesDeCursor(el.value, el.selectionStart ?? el.value.length);
-            el.value = formatearMiles(el.value);
-            const pos = posicionTrasDigitos(el.value, digitos);
-            el.setSelectionRange(pos, pos);
-        });
-        $input.closest('form').on('submit', function () {
-            $input.val(valorParaEnviar($input.val()));
-        });
+        this.value = formatearMiles(this.value);
     });
 
     $(document).on('submit', 'form', function (evento) {
         const form = this;
         if (form.hasAttribute('data-swal-confirm')) {
+            // Lo normaliza Swal al confirmar (submit nativo no dispara este handler otra vez).
             return;
         }
+        normalizarMilesDelForm(form);
+
         const method = (form.getAttribute('method') || 'get').toLowerCase();
         if (method !== 'post') {
             return;
@@ -108,6 +75,50 @@ if ($) {
         });
     });
 
+    $('[data-debt-carousel]').each(function () {
+        const $root = $(this);
+        const $slides = $root.find('[data-debt-slide]');
+        const $dots = $root.find('[data-debt-dot]');
+        if ($slides.length <= 1) {
+            return;
+        }
+        let indice = 0;
+        const intervalo = Number($root.attr('data-interval') || 5000);
+        const mostrar = (siguiente) => {
+            $slides.eq(indice).prop('hidden', true);
+            indice = (siguiente + $slides.length) % $slides.length;
+            $slides.eq(indice).prop('hidden', false);
+            $dots.removeClass('is-active').eq(indice).addClass('is-active');
+        };
+        let timer = window.setInterval(() => mostrar(indice + 1), intervalo);
+        $dots.on('click', function () {
+            const destino = Number(this.getAttribute('data-debt-dot'));
+            if (Number.isNaN(destino) || destino === indice) {
+                return;
+            }
+            window.clearInterval(timer);
+            mostrar(destino);
+            timer = window.setInterval(() => mostrar(indice + 1), intervalo);
+        });
+    });
+
+    $('[data-recurrente-form], [data-ingreso-form]').each(function () {
+        const $form = $(this);
+        const $toggle = $form.find('[data-recurrente-toggle], [data-ingreso-recurrente]');
+        const $fields = $form.find('[data-recurrente-fields], [data-ingreso-recurrente-fields]');
+        const $periodicidad = $form.find('[data-recurrente-periodicidad], [data-ingreso-periodicidad]');
+        const sincronizar = () => {
+            const activo = $toggle.is(':checked');
+            $fields.prop('hidden', !activo);
+            $periodicidad.prop('disabled', !activo);
+            if (activo && ! $periodicidad.val()) {
+                $periodicidad.val('mensual');
+            }
+        };
+        $toggle.on('change', sincronizar);
+        sincronizar();
+    });
+
     if (window.Swal) {
         $(document).on('submit', '[data-swal-confirm]', function (evento) {
             evento.preventDefault();
@@ -128,7 +139,7 @@ if ($) {
             }).then((resultado) => {
                 if (resultado.isConfirmed) {
                     form.dataset.submitting = '1';
-                    // No deshabilitar botones del diálogo Swal: solo el submit del form.
+                    normalizarMilesDelForm(form);
                     const submitters = form.querySelectorAll('button[type="submit"], input[type="submit"]');
                     submitters.forEach((el) => {
                         el.disabled = true;
@@ -170,7 +181,28 @@ if ('serviceWorker' in navigator) {
         const base = (document.querySelector('meta[name="app-base-path"]')?.getAttribute('content') || '').replace(/\/$/, '');
         const swUrl = `${base}/sw.js`;
         const scope = `${base}/`;
-        navigator.serviceWorker.register(swUrl, { scope }).catch(() => {});
+        navigator.serviceWorker.register(swUrl, { scope }).then((reg) => {
+            // iOS “Añadir a inicio” / PWA: avisar si hay SW nuevo tras deploy Plesk.
+            reg.addEventListener('updatefound', () => {
+                const neu = reg.installing;
+                if (! neu) {
+                    return;
+                }
+                neu.addEventListener('statechange', () => {
+                    if (neu.state !== 'installed' || ! navigator.serviceWorker.controller) {
+                        return;
+                    }
+                    const bar = document.querySelector('[data-pwa-update]');
+                    if (bar) {
+                        bar.hidden = false;
+                    }
+                });
+            });
+        }).catch(() => {});
+    });
+
+    document.querySelector('[data-pwa-update-reload]')?.addEventListener('click', () => {
+        window.location.reload();
     });
 }
 

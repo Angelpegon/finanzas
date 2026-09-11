@@ -42,11 +42,19 @@ class CuentaContable extends Model
      * @param  list<int>|null  $cuentaContableIds
      * @return array<int, int> cuenta_contable_id => saldo_centavos
      */
-    public static function saldosCentavosMap(int $usuarioId, ?array $cuentaContableIds = null): array
-    {
+    public static function saldosCentavosMap(
+        int $usuarioId,
+        ?array $cuentaContableIds = null,
+        ?string $fechaHasta = null
+    ): array {
         $query = DB::table('movimientos')
             ->join('cuentas_contables', 'cuentas_contables.id', '=', 'movimientos.cuenta_contable_id')
             ->where('movimientos.usuario_id', $usuarioId)
+            ->when(
+                $fechaHasta !== null,
+                fn ($q) => $q->join('asientos', 'asientos.id', '=', 'movimientos.asiento_id')
+                    ->whereDate('asientos.fecha', '<=', $fechaHasta)
+            )
             ->when(
                 $cuentaContableIds !== null,
                 fn ($q) => $q->whereIn(

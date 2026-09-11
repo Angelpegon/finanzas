@@ -3,6 +3,7 @@
 namespace App\Http\Requests;
 
 use App\Http\Requests\Concerns\MensajesFormulario;
+use App\Support\CuentasOperativas;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -32,10 +33,10 @@ class MetaAhorroRequest extends FormRequest
             'cuenta_liquida_id' => [
                 'required',
                 'integer',
-                Rule::exists('cuentas_liquidas', 'id')->where('usuario_id', $this->user()->id)->where('activa', true),
+                CuentasOperativas::reglaExistsActiva($this->user()->id),
             ],
             'prioridad' => ['required', Rule::in(['alta', 'media', 'baja'])],
-            'estado' => ['required', Rule::in(['activa', 'cumplida', 'pausada', 'cancelada'])],
+            'idempotency_key' => ['required', 'string', 'max:64', 'regex:/^[A-Za-z0-9_-]+$/'],
         ];
     }
 
@@ -43,6 +44,13 @@ class MetaAhorroRequest extends FormRequest
     {
         return [
             'cuenta_liquida_id' => 'cuenta de referencia',
+        ];
+    }
+
+    protected function mensajesExtra(): array
+    {
+        return [
+            'idempotency_key.required' => 'Recarga el formulario e intenta de nuevo.',
         ];
     }
 }

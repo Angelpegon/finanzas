@@ -1,7 +1,7 @@
 @extends('layouts.app', [
     'title' => 'Agregar cuenta',
     'heading' => '¿Dónde guardas tu dinero?',
-    'subtitle' => 'Registra una cuenta para tener una vista completa.',
+    'subtitle' => 'Registra una cuenta operativa. Los bolsillos de meta se crean desde Metas.',
     'backUrl' => route('app.cuentas.index'),
     'backLabel' => 'Volver a cuentas',
 ])
@@ -25,7 +25,7 @@
                 <label class="form-label" for="tipo">Tipo</label>
                 <select id="tipo" name="tipo" class="form-select form-select-lg @error('tipo') is-invalid @enderror" required>
                     <option value="">Selecciona un tipo</option>
-                    @foreach(['bancaria'=>'Cuenta bancaria','ahorros'=>'Cuenta de ahorros','corriente'=>'Cuenta corriente','efectivo'=>'Efectivo','billetera'=>'Billetera digital','otra'=>'Otra cuenta'] as $valor => $texto)
+                    @foreach($tipos as $valor => $texto)
                         <option value="{{ $valor }}" @selected(old('tipo') === $valor)>{{ $texto }}</option>
                     @endforeach
                 </select>

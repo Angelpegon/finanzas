@@ -3,6 +3,7 @@
 namespace App\Http\Requests;
 
 use App\Http\Requests\Concerns\MensajesFormulario;
+use App\Support\CuentasOperativas;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -30,7 +31,6 @@ class ObligacionRequest extends FormRequest
                 Rule::in([
                     'prestamo_bancario',
                     'credito',
-                    'tarjeta_credito',
                     'prestamo_personal',
                     'compra_financiada',
                     'deuda_informal',
@@ -47,11 +47,13 @@ class ObligacionRequest extends FormRequest
             'fecha_vencimiento' => ['nullable', 'date', 'after_or_equal:fecha_inicio'],
             'periodicidad' => ['required', Rule::in(['semanal', 'quincenal', 'mensual', 'anual'])],
             'numero_cuotas' => ['required', 'integer', 'min:1', 'max:600'],
+            'dia_pago' => ['required', 'integer', 'min:1', 'max:31'],
             'cuenta_liquida_id' => [
                 'required',
                 'integer',
-                Rule::exists('cuentas_liquidas', 'id')->where('usuario_id', $this->user()->id)->where('activa', true),
+                CuentasOperativas::reglaExistsActiva($this->user()->id),
             ],
+            'idempotency_key' => ['required', 'string', 'max:64', 'regex:/^[A-Za-z0-9_-]+$/'],
         ];
     }
 
@@ -59,6 +61,14 @@ class ObligacionRequest extends FormRequest
     {
         return [
             'cuenta_liquida_id' => 'cuenta para el desembolso',
+            'dia_pago' => 'día de pago',
+        ];
+    }
+
+    protected function mensajesExtra(): array
+    {
+        return [
+            'idempotency_key.required' => 'Recarga el formulario e intenta de nuevo.',
         ];
     }
 }

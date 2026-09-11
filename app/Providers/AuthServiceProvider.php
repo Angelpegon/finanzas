@@ -2,8 +2,11 @@
 
 namespace App\Providers;
 
+use App\Models\Categoria;
 use App\Models\CuentaLiquida;
+use App\Models\HechoTesoreria;
 use App\Models\MetaAhorro;
+use App\Models\Pago;
 use App\Models\Prestamo;
 use App\Models\Presupuesto;
 use App\Models\TarjetaCredito;
@@ -18,6 +21,9 @@ class AuthServiceProvider extends ServiceProvider
         TarjetaCredito::class => ModeloUsuarioPolicy::class,
         Presupuesto::class => ModeloUsuarioPolicy::class,
         MetaAhorro::class => ModeloUsuarioPolicy::class,
+        Categoria::class => ModeloUsuarioPolicy::class,
+        Pago::class => ModeloUsuarioPolicy::class,
+        HechoTesoreria::class => ModeloUsuarioPolicy::class,
     ];
 
     public function boot(): void

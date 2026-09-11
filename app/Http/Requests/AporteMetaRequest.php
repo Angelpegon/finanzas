@@ -3,6 +3,7 @@
 namespace App\Http\Requests;
 
 use App\Http\Requests\Concerns\MensajesFormulario;
+use App\Support\CuentasOperativas;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -33,11 +34,12 @@ class AporteMetaRequest extends FormRequest
             'cuenta_liquida_id' => [
                 'required',
                 'integer',
-                Rule::exists('cuentas_liquidas', 'id')->where('usuario_id', $this->user()->id)->where('activa', true),
+                CuentasOperativas::reglaExistsActiva($this->user()->id),
             ],
             'monto' => ['required', 'numeric', 'gt:0'],
             'fecha' => ['required', 'date'],
             'descripcion' => ['nullable', 'string', 'max:255'],
+            'idempotency_key' => ['required', 'string', 'max:64', 'regex:/^[A-Za-z0-9_-]+$/'],
         ];
     }
 
@@ -45,6 +47,13 @@ class AporteMetaRequest extends FormRequest
     {
         return [
             'cuenta_liquida_id' => 'cuenta de origen',
+        ];
+    }
+
+    protected function mensajesExtra(): array
+    {
+        return [
+            'idempotency_key.required' => 'Recarga el formulario e intenta de nuevo.',
         ];
     }
 }

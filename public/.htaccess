@@ -1,8 +1,8 @@
 <IfModule mod_headers.c>
     <FilesMatch "^(sw\.js)$">
         Header set Cache-Control "no-cache"
-        # Preferir el header que emite la ruta Laravel /sw.js (respeta subcarpeta).
-        Header set Service-Worker-Allowed "/"
+        # Scope del SW: solo PwaAssetController (respeta APP_URL / subcarpeta Plesk).
+        # No fijar Service-Worker-Allowed "/" aquí: en /finanzas rompería el scope.
     </FilesMatch>
 </IfModule>
 

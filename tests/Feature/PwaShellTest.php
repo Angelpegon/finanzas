@@ -32,8 +32,12 @@ class PwaShellTest extends TestCase
         $this->assertStringContainsString('caches.match(`${BASE}/offline.html`)', $script);
         $this->assertStringContainsString('skipWaiting', $script);
         $this->assertStringContainsString('pathname.startsWith(`${BASE}/build/`)', $script);
-        $this->assertStringContainsString('finanzas-pwa-v4', $script);
+        $this->assertStringContainsString('pathname.startsWith(`${BASE}/assets/`)', $script);
+        $this->assertStringContainsString('finanzas-pwa-v7', $script);
         $this->assertStringContainsString('self.location.pathname.replace', $script);
+        $this->assertStringContainsString('event.respondWith(networkFirst(event.request))', $script);
+        // Dos network-first: /build/ y /assets/
+        $this->assertSame(2, substr_count($script, 'event.respondWith(networkFirst(event.request))'));
     }
 
     public function test_offline_explica_que_el_libro_no_se_posta_sin_red(): void
@@ -73,7 +77,7 @@ class PwaShellTest extends TestCase
             ->assertSee('desktop-sidebar', false)
             ->assertSee('more-sheet', false)
             ->assertSee('Nuevo gasto')
-            ->assertSee('Dashboard')
+            ->assertSee('Situación')
             ->assertSee('Movimientos')
             ->assertSee('Metas')
             ->assertSee('user-menu', false)
@@ -81,7 +85,9 @@ class PwaShellTest extends TestCase
             ->assertSee('header-bell', false)
             ->assertSee('alerts-sheet', false)
             ->assertSee('boot-splash', false)
-            ->assertSee('data-swal-confirm', false);
+            ->assertSee('data-swal-confirm', false)
+            ->assertSee('header-disponible', false)
+            ->assertSee('Libre hoy');
     }
 
     public function test_vistas_internas_comparten_header_con_titulo(): void
@@ -93,7 +99,7 @@ class PwaShellTest extends TestCase
             'app.cuentas.index' => 'Mis cuentas',
             'app.ingresos.create' => '¿Cuánto recibiste?',
             'app.gastos.create' => '¿En qué gastaste?',
-            'app.pagos.index' => 'Transferencias y pagos',
+            'app.pagos.index' => 'Movimientos',
             'app.metas.index' => 'Mis metas',
             'app.presupuestos.index' => 'Mi presupuesto',
             'app.calendario' => 'Calendario',
@@ -106,6 +112,7 @@ class PwaShellTest extends TestCase
                 ->assertOk()
                 ->assertSee('app-header', false)
                 ->assertSee('header-bell', false)
+                ->assertSee('header-disponible', false)
                 ->assertSee('user-menu', false)
                 ->assertSee('app-header__titles', false)
                 ->assertSee($encabezado)
@@ -120,7 +127,7 @@ class PwaShellTest extends TestCase
         $html = $this->actingAs($usuario)->get(route('app.situacion'))->getContent();
         $this->assertStringContainsString('bottom-nav__fab', $html);
         $this->assertStringContainsString('capture-sheet', $html);
-        $this->assertMatchesRegularExpression('/<nav class="bottom-nav"[^>]*>[\s\S]*Dashboard[\s\S]*Movimientos[\s\S]*Metas[\s\S]*Más/u', $html);
+        $this->assertMatchesRegularExpression('/<nav class="bottom-nav"[^>]*>[\s\S]*Situación[\s\S]*Movimientos[\s\S]*Metas[\s\S]*Más/u', $html);
     }
 
     public function test_el_shell_carga_vendor_estatico_como_ambientes(): void

@@ -1,23 +1,30 @@
 @extends('layouts.app', [
     'title' => 'Deudas',
     'heading' => 'Mis deudas',
-    'subtitle' => 'Todo lo que debes, con claridad.',
-    'actionUrl' => route('app.deudas.create'),
-    'actionLabel' => 'Nueva deuda',
+    'subtitle' => 'Todo lo que debes, con claridad. Los pagos se corrigen con reverso contable.',
 ])
 @section('content')
 @php
     $errPagoPrestamo = $errors->pago_prestamo;
     $prestamoConError = $errPagoPrestamo->any() ? (int) old('prestamo_id') : null;
 @endphp
+@include('layouts.partials.form-errors')
 @include('layouts.partials.form-errors', ['bag' => 'pago_prestamo'])
+
+<div class="page-toolbar">
+    <a class="btn btn-primary btn-lg" href="{{ route('app.deudas.create') }}">
+        @include('layouts.partials.icon', ['name' => 'plus', 'class' => 'ui-icon ui-icon--sm'])
+        Nueva deuda
+    </a>
+</div>
+
 <div class="list-block list-block--flush">
 <div class="list-block__head">
     <h2>Obligaciones</h2>
     <span>{{ $prestamos->count() + $tarjetas->count() }}</span>
 </div>
 <div class="card-stack">
-@foreach($prestamos as $deuda)
+@forelse($prestamos as $deuda)
 @php
     $proxima = $deuda->cuotas->firstWhere('pagada', false);
     $montoCuotaCentavos = $proxima
@@ -33,7 +40,7 @@
             <div class="account-card__head">
                 <div class="account-card__title">
                     <h2>{{ $deuda->nombre }}</h2>
-                    <small>{{ $deuda->entidad ?: 'Obligación' }} · {{ str_replace('_', ' ', $deuda->tipo_obligacion) }}</small>
+                    <small>{{ $deuda->entidad ?: 'Obligación' }} · {{ str_replace('_', ' ', $deuda->tipo_obligacion) }} · día {{ $deuda->dia_pago }}</small>
                 </div>
                 <strong class="account-card__amount">@cop($deuda->saldo_actual_centavos)</strong>
             </div>
@@ -49,21 +56,33 @@
         <form method="POST" action="{{ route('app.deudas.pagos.store') }}" class="row g-2 align-items-end" novalidate>
             @csrf
             <input type="hidden" name="prestamo_id" value="{{ $deuda->id }}">
-            <div class="col-md-4">
+            <input type="hidden" name="idempotency_key" value="{{ $esteForm ? old('idempotency_key', $idempotencyKeysPago[$deuda->id] ?? '') : ($idempotencyKeysPago[$deuda->id] ?? '') }}">
+            <div class="col-md-3">
                 <label class="form-label small mb-1">Pagar cuota {{ $proxima->numero }}</label>
                 <input name="monto" data-miles inputmode="decimal" class="form-control @if($esteForm) @error('monto', 'pago_prestamo') is-invalid @enderror @endif" value="{{ $esteForm ? old('monto', $montoCuotaPrefijo) : $montoCuotaPrefijo }}" required>
                 @if($esteForm)
                     @include('layouts.partials.field-error', ['name' => 'monto', 'bag' => 'pago_prestamo'])
                 @endif
             </div>
-            <div class="col-md-4">
+            <div class="col-md-3">
                 <label class="form-label small mb-1">Fecha</label>
                 <input name="fecha" type="date" value="{{ $esteForm ? old('fecha', now()->toDateString()) : now()->toDateString() }}" class="form-control @if($esteForm) @error('fecha', 'pago_prestamo') is-invalid @enderror @endif" required>
                 @if($esteForm)
                     @include('layouts.partials.field-error', ['name' => 'fecha', 'bag' => 'pago_prestamo'])
                 @endif
             </div>
-            <div class="col-md-4">
+            <div class="col-md-3">
+                <label class="form-label small mb-1">Cuenta de pago</label>
+                <select name="cuenta_liquida_id" class="form-select @if($esteForm) @error('cuenta_liquida_id', 'pago_prestamo') is-invalid @enderror @endif">
+                    @foreach($cuentasPago as $cuenta)
+                        <option value="{{ $cuenta->id }}" @selected(($esteForm ? old('cuenta_liquida_id', $deuda->cuenta_liquida_id) : $deuda->cuenta_liquida_id) == $cuenta->id)>{{ $cuenta->nombre }}</option>
+                    @endforeach
+                </select>
+                @if($esteForm)
+                    @include('layouts.partials.field-error', ['name' => 'cuenta_liquida_id', 'bag' => 'pago_prestamo'])
+                @endif
+            </div>
+            <div class="col-md-3">
                 <button class="card-btn card-btn--primary card-btn--block" type="submit">
                     @include('layouts.partials.icon', ['name' => 'money', 'class' => 'ui-icon ui-icon--xs'])
                     Registrar pago
@@ -95,7 +114,11 @@
         </details>
     </div>
 </article>
-@endforeach
+@empty
+    @if($tarjetas->isEmpty())
+        <div class="alert alert-light empty-state">Aún no tienes obligaciones. <a href="{{ route('app.deudas.create') }}">Registrar una deuda</a> o una <a href="{{ route('app.tarjetas.create') }}">tarjeta</a>.</div>
+    @endif
+@endforelse
 @foreach($tarjetas as $deuda)
 <article class="account-card">
     <div class="account-card__main">
@@ -118,9 +141,61 @@
     </div>
 </article>
 @endforeach
-@if($prestamos->isEmpty() && $tarjetas->isEmpty())
-    <div class="alert alert-light empty-state">Aún no tienes obligaciones registradas.</div>
+</div>
+</div>
+
+@if($pagosRecientes->isNotEmpty())
+<div class="list-block mt-4">
+    <div class="list-block__head">
+        <h2>Pagos recientes</h2>
+        <span>{{ $pagosRecientes->count() }}</span>
+    </div>
+    <div class="card-stack">
+        @foreach($pagosRecientes as $pago)
+            @php
+                $corregido = in_array((int) $pago->id, $idsRevertidos, true);
+                $esUltimo = in_array((int) $pago->id, $ultimoPagoPorPrestamo, true);
+            @endphp
+            <article class="account-card">
+                <div class="account-card__main">
+                    <div class="account-card__icon">@include('layouts.partials.icon', ['name' => 'money', 'class' => 'ui-icon ui-icon--sm'])</div>
+                    <div class="account-card__body">
+                        <div class="account-card__head">
+                            <div class="account-card__title">
+                                <h2>{{ $pago->prestamo?->nombre ?: 'Préstamo' }}</h2>
+                                <small>
+                                    {{ $pago->fecha?->format('d/m/Y') }}
+                                    @if($pago->cuentaLiquida) · {{ $pago->cuentaLiquida->nombre }}@endif
+                                    @if($pago->extraordinario) · Abono extra @endif
+                                    @if($corregido) · <span class="text-danger">Corregido</span>@endif
+                                </small>
+                            </div>
+                            <strong class="account-card__amount {{ $corregido ? 'text-secondary' : '' }}">
+                                @if($corregido)<s>@endif @cop($pago->monto_centavos) @if($corregido)</s>@endif
+                            </strong>
+                        </div>
+                        @if(! $corregido && $esUltimo)
+                            <div class="account-card__actions mt-2">
+                                <form method="POST" action="{{ route('app.deudas.pagos.corregir', $pago) }}" class="d-inline"
+                                    data-swal-confirm
+                                    data-swal-title="¿Corregir este pago?"
+                                    data-swal-text="Se registra un reverso en el libro y se reabre la cuota. Si hubo abono extra, se restaura el cronograma anterior."
+                                    data-swal-icon="warning"
+                                    data-swal-confirm-text="Corregir">
+                                    @csrf
+                                    <input type="hidden" name="motivo" value="Corrección de pago #{{ $pago->id }}">
+                                    <button class="card-btn card-btn--warn" type="submit">
+                                        @include('layouts.partials.icon', ['name' => 'ban', 'class' => 'ui-icon ui-icon--xs'])
+                                        Corregir
+                                    </button>
+                                </form>
+                            </div>
+                        @endif
+                    </div>
+                </div>
+            </article>
+        @endforeach
+    </div>
+</div>
 @endif
-</div>
-</div>
 @endsection

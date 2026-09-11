@@ -3,9 +3,11 @@
 namespace App\Services;
 
 use App\Enums\TipoHechoTesoreria;
+use App\Models\Asiento;
 use App\Models\Categoria;
 use App\Models\CuentaLiquida;
 use App\Models\HechoTesoreria;
+use App\Support\CuentasOperativas;
 use Illuminate\Support\Facades\DB;
 
 class TesoreriaService
@@ -31,12 +33,16 @@ class TesoreriaService
             && ($cuentaLiquidaId === null || $categoriaId === null)) {
             throw new \InvalidArgumentException('Ingresos y gastos requieren cuenta y categoría.');
         }
-        if (in_array($tipo, [TipoHechoTesoreria::Transferencia, TipoHechoTesoreria::AporteMeta], true)
-            && ($cuentaLiquidaId === null || $cuentaDestinoId === null)) {
-            throw new \InvalidArgumentException('Transferencias y aportes requieren cuenta de origen y destino.');
+        if (in_array($tipo, [
+            TipoHechoTesoreria::Transferencia,
+            TipoHechoTesoreria::AporteMeta,
+            TipoHechoTesoreria::RetiroMeta,
+        ], true) && ($cuentaLiquidaId === null || $cuentaDestinoId === null)) {
+            throw new \InvalidArgumentException('Transferencias, aportes y retiros de meta requieren origen y destino.');
         }
-        if ($tipo === TipoHechoTesoreria::AporteMeta && $metaAhorroId === null) {
-            throw new \InvalidArgumentException('El aporte requiere una meta de ahorro.');
+        if (in_array($tipo, [TipoHechoTesoreria::AporteMeta, TipoHechoTesoreria::RetiroMeta], true)
+            && $metaAhorroId === null) {
+            throw new \InvalidArgumentException('El movimiento de meta requiere una meta de ahorro.');
         }
 
         return DB::transaction(function () use (
@@ -56,16 +62,30 @@ class TesoreriaService
                 throw new \InvalidArgumentException('La categoría no corresponde a un gasto.');
             }
 
-            $bolsillos = \App\Support\CuentasOperativas::idsBolsillosActivos($usuarioId);
+            $bolsillos = CuentasOperativas::idsBolsillosMetas($usuarioId);
+            $origenEsBolsillo = $cuenta && in_array((int) $cuenta->id, $bolsillos, true);
+            $destinoEsBolsillo = $cuentaDestinoId !== null && in_array((int) $cuentaDestinoId, $bolsillos, true);
+
             if ($tipo === TipoHechoTesoreria::Transferencia) {
-                if ($cuenta && in_array((int) $cuenta->id, $bolsillos, true)) {
-                    throw new \InvalidArgumentException('No uses un bolsillo de meta en transferencias; usa aportes a meta.');
+                if ($origenEsBolsillo || $destinoEsBolsillo) {
+                    throw new \InvalidArgumentException('No uses un bolsillo de meta en transferencias; usa aportes o retiros de meta.');
                 }
-                if ($cuentaDestinoId !== null && in_array((int) $cuentaDestinoId, $bolsillos, true)) {
-                    throw new \InvalidArgumentException('No uses un bolsillo de meta en transferencias; usa aportes a meta.');
+            } elseif ($tipo === TipoHechoTesoreria::AporteMeta) {
+                if ($origenEsBolsillo) {
+                    throw new \InvalidArgumentException('El aporte debe salir de una cuenta operativa, no de un bolsillo de meta.');
                 }
-            } elseif ($tipo !== TipoHechoTesoreria::AporteMeta && $cuenta && in_array((int) $cuenta->id, $bolsillos, true)) {
-                throw new \InvalidArgumentException('El bolsillo de una meta solo se mueve con aportes a meta.');
+                if (! $destinoEsBolsillo) {
+                    throw new \InvalidArgumentException('El aporte debe ir al bolsillo de la meta.');
+                }
+            } elseif ($tipo === TipoHechoTesoreria::RetiroMeta) {
+                if (! $origenEsBolsillo) {
+                    throw new \InvalidArgumentException('El retiro debe salir del bolsillo de la meta.');
+                }
+                if ($destinoEsBolsillo) {
+                    throw new \InvalidArgumentException('El retiro debe ir a una cuenta operativa, no a otro bolsillo.');
+                }
+            } elseif ($cuenta && $origenEsBolsillo) {
+                throw new \InvalidArgumentException('El bolsillo de una meta solo se mueve con aportes o retiros de meta.');
             }
 
             if ($tipo === TipoHechoTesoreria::Gasto && $cuenta && $cuenta->saldoCentavos() < $montoCentavos) {
@@ -89,7 +109,9 @@ class TesoreriaService
                     ['cuenta_contable_id' => $categoria?->cuenta_contable_id, 'debe_centavos' => $montoCentavos, 'haber_centavos' => 0],
                     ['cuenta_contable_id' => $cuenta?->cuenta_contable_id, 'debe_centavos' => 0, 'haber_centavos' => $montoCentavos],
                 ],
-                TipoHechoTesoreria::Transferencia, TipoHechoTesoreria::AporteMeta => $this->movimientosTransferencia($usuarioId, $cuenta, $cuentaDestinoId, $montoCentavos),
+                TipoHechoTesoreria::Transferencia,
+                TipoHechoTesoreria::AporteMeta,
+                TipoHechoTesoreria::RetiroMeta => $this->movimientosTransferencia($usuarioId, $cuenta, $cuentaDestinoId, $montoCentavos),
                 TipoHechoTesoreria::Apertura => [
                     ['cuenta_contable_id' => $cuenta?->cuenta_contable_id, 'debe_centavos' => $montoCentavos, 'haber_centavos' => 0],
                     ['cuenta_contable_id' => $this->cuentaPatrimonio($usuarioId), 'debe_centavos' => 0, 'haber_centavos' => $montoCentavos],
@@ -122,6 +144,41 @@ class TesoreriaService
             );
 
             return $hecho;
+        });
+    }
+
+    /**
+     * Corrige una transferencia entre cuentas propias (reverso contable).
+     * No aplica a aportes ni retiros de meta (usa MetaAhorroService::corregirMovimiento).
+     */
+    public function corregirTransferencia(
+        int $usuarioId,
+        int $hechoId,
+        string $fecha,
+        string $motivo = 'Corrección de transferencia'
+    ): void {
+        DB::transaction(function () use ($usuarioId, $hechoId, $fecha, $motivo): void {
+            $hecho = HechoTesoreria::withoutGlobalScopes()
+                ->where('usuario_id', $usuarioId)
+                ->where('tipo', TipoHechoTesoreria::Transferencia)
+                ->lockForUpdate()
+                ->findOrFail($hechoId);
+
+            $asiento = Asiento::withoutGlobalScopes()
+                ->where('usuario_id', $usuarioId)
+                ->where('origen_tipo', HechoTesoreria::class)
+                ->where('origen_id', $hecho->id)
+                ->where('es_reverso', false)
+                ->firstOrFail();
+
+            if (Asiento::withoutGlobalScopes()
+                ->where('usuario_id', $usuarioId)
+                ->where('asiento_reversado_id', $asiento->id)
+                ->exists()) {
+                throw new \InvalidArgumentException('Esta transferencia ya fue corregida.');
+            }
+
+            $this->contabilizacion->revertir($usuarioId, (int) $asiento->id, $fecha, $motivo);
         });
     }
 

@@ -22,8 +22,9 @@ class FormValidationTest extends TestCase
             'fecha',
             'categoria_id',
             'cuenta_liquida_id',
-            'periodicidad',
+            'idempotency_key',
         ]);
+        $response->assertSessionDoesntHaveErrors('periodicidad');
 
         $errors = session('errors');
         $this->assertStringContainsString('monto', mb_strtolower($errors->first('monto')));
@@ -42,11 +43,29 @@ class FormValidationTest extends TestCase
             'categoria_id' => $categoria->id,
             'cuenta_liquida_id' => $cuenta->id,
             'tipo_gasto' => 'variable',
-            'periodicidad' => 'unico',
+            'idempotency_key' => 'test-gasto-cero-1',
         ]);
 
         $response->assertSessionHasErrors('monto');
         $this->assertStringContainsString('mayor', mb_strtolower(session('errors')->first('monto')));
+    }
+
+    public function test_gasto_sin_datos_exige_campos_base_sin_periodicidad(): void
+    {
+        $usuario = $this->usuarioConCatalogo();
+
+        $response = $this->actingAs($usuario)->from(route('app.gastos.create'))->post(route('app.gastos.store'), []);
+
+        $response->assertRedirect(route('app.gastos.create'));
+        $response->assertSessionHasErrors([
+            'monto',
+            'fecha',
+            'categoria_id',
+            'cuenta_liquida_id',
+            'tipo_gasto',
+            'idempotency_key',
+        ]);
+        $response->assertSessionDoesntHaveErrors('periodicidad');
     }
 
     public function test_normaliza_monto_colombiano_antes_de_validar(): void
@@ -61,10 +80,10 @@ class FormValidationTest extends TestCase
             'categoria_id' => $categoria->id,
             'cuenta_liquida_id' => $cuenta->id,
             'descripcion' => 'Prueba formato',
-            'periodicidad' => 'unico',
+            'idempotency_key' => 'test-key-formato-1',
         ]);
 
-        $response->assertRedirect(route('app.situacion'));
+        $response->assertRedirect(route('app.ingresos.index'));
         $response->assertSessionHasNoErrors();
     }
 
@@ -74,12 +93,13 @@ class FormValidationTest extends TestCase
         $cuenta = CuentaLiquida::where('usuario_id', $usuario->id)->firstOrFail();
 
         $response = $this->actingAs($usuario)->from(route('app.pagos.index'))->post(route('app.pagos.store'), [
-            'tipo' => 'gasto',
+            'tipo' => 'deuda_personal',
             'fecha' => now()->toDateString(),
             'monto' => '10000',
             'cuenta_liquida_id' => $cuenta->id,
             'destino' => 'Proveedor',
             'referencia' => 'FAC-1',
+            'idempotency_key' => (string) \Illuminate\Support\Str::uuid(),
         ]);
 
         $response->assertSessionHasErrorsIn('pago', ['categoria_id']);
@@ -96,6 +116,7 @@ class FormValidationTest extends TestCase
             'cuenta_destino_id' => $cuenta->id,
             'monto' => '1000',
             'fecha' => now()->toDateString(),
+            'idempotency_key' => (string) \Illuminate\Support\Str::uuid(),
         ]);
 
         $response->assertSessionHasErrorsIn('transferencia', ['cuenta_destino_id']);
@@ -123,6 +144,7 @@ class FormValidationTest extends TestCase
             'cuenta_destino_id' => $bolsilloId,
             'monto' => '10000',
             'fecha' => now()->toDateString(),
+            'idempotency_key' => (string) \Illuminate\Support\Str::uuid(),
         ]);
 
         $response->assertSessionHasErrorsIn('transferencia', ['cuenta_destino_id']);
@@ -136,13 +158,14 @@ class FormValidationTest extends TestCase
 
         // Sin saldo suficiente: el mensaje no debe colgarse solo en "monto".
         $response = $this->actingAs($usuario)->from(route('app.pagos.index'))->post(route('app.pagos.store'), [
-            'tipo' => 'gasto',
+            'tipo' => 'deuda_personal',
             'fecha' => now()->toDateString(),
             'monto' => '999999999',
             'cuenta_liquida_id' => $cuenta->id,
             'categoria_id' => $categoria->id,
             'destino' => 'Proveedor',
             'referencia' => 'FAC-SALDO',
+            'idempotency_key' => (string) \Illuminate\Support\Str::uuid(),
         ]);
 
         $response->assertSessionHasErrorsIn('pago', ['cuenta_liquida_id']);

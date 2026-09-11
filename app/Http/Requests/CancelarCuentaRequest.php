@@ -3,6 +3,7 @@
 namespace App\Http\Requests;
 
 use App\Http\Requests\Concerns\MensajesFormulario;
+use App\Support\CuentasOperativas;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -23,10 +24,7 @@ class CancelarCuentaRequest extends FormRequest
                 'nullable',
                 'integer',
                 'required_if:disposicion,transferir',
-                Rule::exists('cuentas_liquidas', 'id')
-                    ->where('usuario_id', $this->user()->id)
-                    ->where('activa', true)
-                    ->where('estado', 'activa'),
+                CuentasOperativas::reglaExistsActiva((int) $this->user()->id),
             ],
         ];
     }

@@ -7,6 +7,7 @@ use App\Models\CuentaContable;
 use App\Models\CuentaLiquida;
 use App\Models\MetaAhorro;
 use App\Models\Prestamo;
+use App\Support\CuentasOperativas;
 use App\Support\Dinero;
 use Illuminate\Support\Facades\DB;
 
@@ -46,32 +47,107 @@ class CuentaLiquidaService
                 );
             }
 
+            SituacionFinancieraService::olvidarResumenShell($usuarioId);
+
             return $cuenta->fresh('cuentaContable');
         });
     }
 
-    public function archivar(int $usuarioId, CuentaLiquida $cuenta): void
+    public function actualizar(int $usuarioId, CuentaLiquida $cuenta, array $datos): CuentaLiquida
     {
         $this->assertDueno($usuarioId, $cuenta);
+        $this->assertNoBolsillo($usuarioId, $cuenta);
+        if ($cuenta->estado === 'cancelada') {
+            throw new \InvalidArgumentException('Una cuenta cancelada no se puede editar.');
+        }
+
+        return DB::transaction(function () use ($usuarioId, $cuenta, $datos): CuentaLiquida {
+            $cuenta = CuentaLiquida::withoutGlobalScopes()
+                ->where('usuario_id', $usuarioId)
+                ->lockForUpdate()
+                ->findOrFail($cuenta->id);
+
+            $cuenta->update([
+                'nombre' => $datos['nombre'],
+                'tipo' => $datos['tipo'],
+                'institucion' => $datos['institucion'] ?? null,
+                'numero_cuenta_enmascarado' => $datos['numero_cuenta_enmascarado'] ?? null,
+            ]);
+            CuentaContable::withoutGlobalScopes()
+                ->where('usuario_id', $usuarioId)
+                ->whereKey($cuenta->cuenta_contable_id)
+                ->update(['nombre' => $datos['nombre']]);
+
+            return $cuenta->fresh('cuentaContable');
+        });
+    }
+
+    /**
+     * Archiva la cuenta. Si hay saldo, debe transferirse a otra cuenta operativa.
+     */
+    public function archivar(int $usuarioId, CuentaLiquida $cuenta, ?int $cuentaDestinoId = null): void
+    {
+        $this->assertDueno($usuarioId, $cuenta);
+        $this->assertNoBolsillo($usuarioId, $cuenta);
         if ($cuenta->estado === 'cancelada') {
             throw new \InvalidArgumentException('Una cuenta cancelada no se puede archivar.');
         }
-        $cuenta->update(['activa' => false, 'estado' => 'inactiva']);
+        if ($cuenta->estado === 'inactiva' && ! $cuenta->activa) {
+            throw new \InvalidArgumentException('La cuenta ya está archivada.');
+        }
+
+        DB::transaction(function () use ($usuarioId, $cuenta, $cuentaDestinoId): void {
+            $cuenta = CuentaLiquida::withoutGlobalScopes()
+                ->where('usuario_id', $usuarioId)
+                ->lockForUpdate()
+                ->findOrFail($cuenta->id);
+
+            $saldo = $cuenta->saldoCentavos();
+            if ($saldo < 0) {
+                throw new \InvalidArgumentException('La cuenta tiene saldo negativo; corrige el libro antes de archivarla.');
+            }
+            if ($saldo > 0) {
+                if ($cuentaDestinoId === null) {
+                    throw new \InvalidArgumentException(
+                        'Para archivar con saldo debes transferir los fondos a otra cuenta operativa.'
+                    );
+                }
+                $this->assertDestinoOperativo($usuarioId, $cuentaDestinoId, (int) $cuenta->id);
+                $this->tesoreria->registrar(
+                    $usuarioId,
+                    TipoHechoTesoreria::Transferencia,
+                    now()->toDateString(),
+                    $saldo,
+                    $cuenta->id,
+                    null,
+                    $cuentaDestinoId,
+                    'Traslado al archivar '.$cuenta->nombre
+                );
+                $cuenta->refresh();
+                if ($cuenta->saldoCentavos() !== 0) {
+                    throw new \InvalidArgumentException('No se pudo dejar la cuenta en cero antes de archivarla.');
+                }
+            }
+
+            $cuenta->update(['activa' => false, 'estado' => 'inactiva']);
+            SituacionFinancieraService::olvidarResumenShell($usuarioId);
+        });
     }
 
     public function restaurar(int $usuarioId, CuentaLiquida $cuenta): void
     {
         $this->assertDueno($usuarioId, $cuenta);
+        $this->assertNoBolsillo($usuarioId, $cuenta);
         if ($cuenta->estado === 'cancelada') {
             throw new \InvalidArgumentException('Una cuenta cancelada no se puede restaurar.');
         }
         $cuenta->update(['activa' => true, 'estado' => 'activa']);
+        SituacionFinancieraService::olvidarResumenShell($usuarioId);
     }
 
     /**
-     * Cancela la cuenta de forma permanente (soft). Si hay saldo:
-     * - transferir: mueve todo a otra cuenta activa
-     * - baja: asiento de cierre (patrimonio ← liquidez); sale del disponible
+     * Cancela la cuenta de forma permanente (soft). Desaparece de toda la UI operativa.
+     * El libro append-only se conserva; no se borran asientos.
      *
      * @param  'transferir'|'baja'|null  $disposicion
      */
@@ -82,6 +158,7 @@ class CuentaLiquidaService
         ?int $cuentaDestinoId = null
     ): void {
         $this->assertDueno($usuarioId, $cuenta);
+        $this->assertNoBolsillo($usuarioId, $cuenta);
         if ($cuenta->estado === 'cancelada') {
             throw new \InvalidArgumentException('La cuenta ya está cancelada.');
         }
@@ -99,7 +176,6 @@ class CuentaLiquidaService
                 throw new \InvalidArgumentException('La cuenta tiene saldo negativo; corrige el libro antes de cancelarla.');
             }
 
-            // Tesorería solo opera cuentas activas; reactivar temporalmente si estaba archivada.
             if (! $cuenta->activa) {
                 $cuenta->update(['activa' => true]);
             }
@@ -109,6 +185,7 @@ class CuentaLiquidaService
                     if ($cuentaDestinoId === null) {
                         throw new \InvalidArgumentException('Elige la cuenta destino para transferir el saldo.');
                     }
+                    $this->assertDestinoOperativo($usuarioId, $cuentaDestinoId, (int) $cuenta->id);
                     $this->tesoreria->registrar(
                         $usuarioId,
                         TipoHechoTesoreria::Transferencia,
@@ -143,6 +220,7 @@ class CuentaLiquidaService
             }
 
             $cuenta->update(['activa' => false, 'estado' => 'cancelada']);
+            SituacionFinancieraService::olvidarResumenShell($usuarioId);
         });
     }
 
@@ -164,6 +242,24 @@ class CuentaLiquidaService
             ->exists();
         if ($prestamos) {
             throw new \InvalidArgumentException('La cuenta está ligada a un préstamo con cuotas pendientes.');
+        }
+    }
+
+    private function assertNoBolsillo(int $usuarioId, CuentaLiquida $cuenta): void
+    {
+        if (in_array((int) $cuenta->id, CuentasOperativas::idsBolsillosActivos($usuarioId), true)) {
+            throw new \InvalidArgumentException('Los bolsillos de meta se gestionan desde Metas, no desde Cuentas.');
+        }
+    }
+
+    private function assertDestinoOperativo(int $usuarioId, int $destinoId, int $origenId): void
+    {
+        if ($destinoId === $origenId) {
+            throw new \InvalidArgumentException('La cuenta destino debe ser distinta.');
+        }
+        $ok = CuentasOperativas::queryActivas($usuarioId)->whereKey($destinoId)->exists();
+        if (! $ok) {
+            throw new \InvalidArgumentException('Elige una cuenta operativa activa como destino.');
         }
     }
 

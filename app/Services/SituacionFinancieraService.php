@@ -8,38 +8,52 @@ use App\Models\CuentaLiquida;
 use App\Models\CuotaPrestamo;
 use App\Models\CuotaTarjeta;
 use App\Models\HechoTesoreria;
-use App\Models\MetaAhorro;
-use App\Models\MovimientoLibro;
 use App\Models\Pago;
 use App\Models\Prestamo;
 use App\Models\Presupuesto;
-use App\Models\Recurrencia;
 use App\Models\TarjetaCredito;
+use App\Support\CuentasOperativas;
 use Illuminate\Support\Carbon;
-use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Cache;
 
 class SituacionFinancieraService
 {
+    private const CACHE_SHELL_TTL_SEGUNDOS = 45;
+
     public function __construct(
         private readonly ProyeccionService $proyeccion,
         private readonly CalendarioFinancieroService $calendario,
     ) {}
 
+    public static function claveCacheShell(int $usuarioId, ?Carbon $fecha = null): string
+    {
+        $fecha ??= now();
+
+        return 'situacion.shell.'.$usuarioId.'.'.$fecha->format('Y-m');
+    }
+
+    public static function olvidarResumenShell(int $usuarioId): void
+    {
+        // Mes actual + clave legada sin mes (por si quedó algo en caché antigua).
+        Cache::forget(self::claveCacheShell($usuarioId));
+        Cache::forget('situacion.shell.'.$usuarioId);
+    }
+
     /**
      * Distingue patrimonio líquido (todas las cuentas) del cash libre.
-     * Disponible = liquidez sin bolsillos de metas activas − cuotas − aportes
-     * planificados − gastos proyectados pendientes. El dinero ya etiquetado
-     * en una meta no es libre para gastar.
+     * Disponible = liquidez sin bolsillos de meta − cuotas − aportes
+     * planificados netos − gastos proyectados pendientes. El dinero ya
+     * etiquetado en una meta no es libre para gastar.
      *
      * @param  bool  $dashboard  Widgets densos solo para Situación (no el composer global).
      */
     public function responder(int $usuarioId, ?Carbon $fecha = null, bool $dashboard = false): array
     {
         $fecha ??= now();
+        $bolsilloIds = CuentasOperativas::idsBolsillosActivos($usuarioId);
         $cuentas = CuentaLiquida::withoutGlobalScopes()->where('usuario_id', $usuarioId)
             ->where('estado', '!=', 'cancelada')
             ->get();
-        $bolsilloIds = $this->idsBolsillosMetaActiva($usuarioId);
         $saldos = CuentaContable::saldosCentavosMap(
             $usuarioId,
             $cuentas->pluck('cuenta_contable_id')->map(fn ($id) => (int) $id)->all()
@@ -50,6 +64,7 @@ class SituacionFinancieraService
             ->whereIn('id', $bolsilloIds)
             ->sum($saldoDe);
         $liquidezLibre = $liquidez - $reservadoMetas;
+
         $pasivos = CuentaContable::withoutGlobalScopes()->where('usuario_id', $usuarioId)
             ->where('naturaleza', NaturalezaCuenta::Pasivo)->get();
         $saldosPasivo = CuentaContable::saldosCentavosMap(
@@ -57,6 +72,7 @@ class SituacionFinancieraService
             $pasivos->pluck('id')->map(fn ($id) => (int) $id)->all()
         );
         $deuda = (int) $pasivos->sum(fn (CuentaContable $cuenta) => (int) ($saldosPasivo[(int) $cuenta->id] ?? 0));
+
         $inicio = $fecha->copy()->startOfMonth();
         $fin = $fecha->copy()->endOfMonth();
         $proyeccion = $this->proyeccion->horizonteMensual($usuarioId, $fecha);
@@ -64,26 +80,23 @@ class SituacionFinancieraService
         $gastosMes = \App\Support\AgregadosLibro::gastosReales($usuarioId, $inicio, $fin);
         $pagosDeudaMes = (int) Pago::withoutGlobalScopes()->where('usuario_id', $usuarioId)
             ->whereIn('tipo', ['prestamo', 'credito', 'tarjeta'])->whereBetween('fecha', [$inicio, $fin])->sum('monto_centavos');
+
         $cuotasProximas = CuotaPrestamo::withoutGlobalScopes()->where('usuario_id', $usuarioId)->where('pagada', false)
             ->whereBetween('fecha_vencimiento', [$fecha->copy()->startOfDay(), $fecha->copy()->addDays(30)->endOfDay()])
             ->with('prestamo')->orderBy('fecha_vencimiento')->limit(10)->get();
         $cuotasTarjeta = CuotaTarjeta::withoutGlobalScopes()->where('usuario_id', $usuarioId)->where('pagada', false)
             ->whereBetween('fecha_vencimiento', [$fecha->copy()->startOfDay(), $fecha->copy()->addDays(30)->endOfDay()])
             ->with(['compra.tarjetaCredito'])->orderBy('fecha_vencimiento')->limit(10)->get();
+        $pagosProximos = $cuotasProximas->concat($cuotasTarjeta)->sortBy('fecha_vencimiento')->values();
+
         $presupuesto = Presupuesto::with('lineas.categoria')->withoutGlobalScopes()
             ->where('usuario_id', $usuarioId)->where('anio', $fecha->year)->where('mes', $fecha->month)->first();
-        $presupuestosAlertas = $presupuesto?->lineas->filter(fn ($linea) => $linea->porcentaje_consumido >= min($presupuesto->umbrales_alerta ?? [70]))->values() ?? collect();
-        $ingresosEsperados = Recurrencia::withoutGlobalScopes()->where('usuario_id', $usuarioId)
-            ->where('tipo', 'ingreso')->where('activa', true)->orderBy('dia_del_mes')->limit(10)->get();
-        $pagosProximos = $cuotasProximas->concat($cuotasTarjeta)->sortBy('fecha_vencimiento')->values();
+        app(PresupuestoService::class)->enriquecer($presupuesto);
+
         $flujo = $ingresosMes - $gastosMes - $pagosDeudaMes;
-        $ingresosBase = max($ingresosMes, $proyeccion['ingresos']);
-        $compromisos = $proyeccion['cuotas'] + $proyeccion['gastos'];
         $gastosProyectadosPendientes = max(0, $proyeccion['gastos'] - $gastosMes);
         $dineroComprometido = $proyeccion['cuotas'] + $proyeccion['metas'];
-        $salidasPendientes = $dineroComprometido + $gastosProyectadosPendientes;
-        $disponible = $liquidezLibre - $salidasPendientes;
-        $tasaAhorro = $ingresosMes > 0 ? round(($flujo / $ingresosMes) * 100, 1) : 0;
+        $disponible = $liquidezLibre - $dineroComprometido - $gastosProyectadosPendientes;
         $nivelEndeudamiento = $liquidez > 0
             ? round(($deuda / $liquidez) * 100, 1)
             : ($deuda > 0 ? 100 : 0);
@@ -99,29 +112,9 @@ class SituacionFinancieraService
             'ingresos_mes_centavos' => $ingresosMes,
             'gastos_mes_centavos' => $gastosMes,
             'pagos_deuda_mes_centavos' => $pagosDeudaMes,
-            'ahorro_mes_centavos' => $flujo,
             'flujo_caja_centavos' => $flujo,
-            'tasa_ahorro_porcentaje' => $tasaAhorro,
             'nivel_endeudamiento_porcentaje' => $nivelEndeudamiento,
-            'nivel_endeudamiento_definicion' => 'Deuda total / saldo actual de cuentas × 100',
-            'ingresos_comprometidos_porcentaje' => $ingresosBase > 0 ? round(($compromisos / $ingresosBase) * 100, 1) : 0,
-            'ingresos_comprometidos_centavos' => $compromisos,
-            'ingresos_comprometidos_definicion' => 'Cuotas pendientes y gastos proyectados / ingresos proyectados × 100',
-            'recibire_centavos' => $proyeccion['ingresos'],
-            'comprometido_centavos' => $dineroComprometido,
-            'gastare_este_mes_centavos' => $proyeccion['gastos'] + $proyeccion['cuotas'],
-            'proximos_pagos' => $pagosProximos,
             'proximos_vencimientos' => $pagosProximos,
-            'ingresos_esperados' => $ingresosEsperados,
-            'presupuestos_alertas' => $presupuestosAlertas,
-            'evolucion_deuda' => $this->evolucionPasivo($usuarioId, $fecha),
-            'evolucion_patrimonial' => $this->evolucionPatrimonial($usuarioId, $fecha),
-            'intereses_mes_centavos' => $this->interesesPosteadosMes($usuarioId, $inicio, $fin),
-            'deuda_mayor_costo' => $this->deudaMayorCosto($usuarioId),
-            'cuando_termino' => $this->cuandoTermino($usuarioId),
-            'puede_asumir_deuda' => $proyeccion['capacidad_ahorro'] > 0,
-            'capacidad_ahorro_centavos' => $proyeccion['capacidad_ahorro'],
-            'proyeccion' => $proyeccion,
             'periodo_etiqueta' => ucfirst($fecha->copy()->locale('es')->monthName).' '.$fecha->year,
         ];
 
@@ -134,6 +127,7 @@ class SituacionFinancieraService
                 $ingresosMes,
                 $gastosMes,
                 $pagosDeudaMes,
+                $bolsilloIds,
             ));
         }
 
@@ -141,17 +135,43 @@ class SituacionFinancieraService
     }
 
     /**
-     * Payload liviano para el shell (sidebar + alertas) en páginas que no son el dashboard.
+     * Payload liviano para el shell (sidebar/header + alertas) en páginas
+     * que no son el dashboard. Siempre “hoy” (mes corriente). Cache Laravel
+     * con invalidación en Contabilizacion/Metas/Cuentas — sin static de proceso.
      *
-     * @return array{dinero_disponible_real_centavos:int,flujo_caja_centavos:int,nivel_endeudamiento_porcentaje:float|int}
+     * @return array{
+     *     dinero_disponible_real_centavos: int,
+     *     flujo_caja_centavos: int,
+     *     nivel_endeudamiento_porcentaje: float|int,
+     *     alertas: list<array{nivel: string, titulo: string, mensaje: string, enlace?: ?string}>
+     * }
      */
     public function resumenShell(int $usuarioId, ?Carbon $fecha = null): array
     {
         $fecha ??= now();
+        $clave = self::claveCacheShell($usuarioId, $fecha);
+
+        return Cache::remember(
+            $clave,
+            self::CACHE_SHELL_TTL_SEGUNDOS,
+            fn (): array => $this->calcularResumenShell($usuarioId, $fecha)
+        );
+    }
+
+    /**
+     * @return array{
+     *     dinero_disponible_real_centavos: int,
+     *     flujo_caja_centavos: int,
+     *     nivel_endeudamiento_porcentaje: float|int,
+     *     alertas: list<array{nivel: string, titulo: string, mensaje: string, enlace?: ?string}>
+     * }
+     */
+    private function calcularResumenShell(int $usuarioId, Carbon $fecha): array
+    {
+        $bolsilloIds = CuentasOperativas::idsBolsillosActivos($usuarioId);
         $cuentas = CuentaLiquida::withoutGlobalScopes()->where('usuario_id', $usuarioId)
             ->where('estado', '!=', 'cancelada')
             ->get();
-        $bolsilloIds = $this->idsBolsillosMetaActiva($usuarioId);
         $saldos = CuentaContable::saldosCentavosMap(
             $usuarioId,
             $cuentas->pluck('cuenta_contable_id')->map(fn ($id) => (int) $id)->all()
@@ -181,13 +201,19 @@ class SituacionFinancieraService
             ? round(($deuda / $liquidez) * 100, 1)
             : ($deuda > 0 ? 100 : 0);
 
-        return [
+        $payload = [
             'dinero_disponible_real_centavos' => $disponible,
             'flujo_caja_centavos' => $flujo,
             'nivel_endeudamiento_porcentaje' => $nivelEndeudamiento,
         ];
+        $payload['alertas'] = app(AlertaService::class)->evaluar($usuarioId, $payload, $fecha);
+
+        return $payload;
     }
 
+    /**
+     * @param  list<int>  $bolsilloIds
+     */
     private function widgetsDashboard(
         int $usuarioId,
         Carbon $fecha,
@@ -196,6 +222,7 @@ class SituacionFinancieraService
         int $ingresosMes,
         int $gastosMes,
         int $pagosDeudaMes,
+        array $bolsilloIds,
     ): array {
         $anterior = $fecha->copy()->subMonth();
         $inicioAnt = $anterior->copy()->startOfMonth();
@@ -209,6 +236,8 @@ class SituacionFinancieraService
         $cuentas = CuentaLiquida::withoutGlobalScopes()
             ->where('usuario_id', $usuarioId)
             ->where('activa', true)
+            ->where('estado', '!=', 'cancelada')
+            ->when($bolsilloIds !== [], fn ($q) => $q->whereNotIn('id', $bolsilloIds))
             ->orderBy('nombre')
             ->get();
         $saldosCuentas = CuentaContable::saldosCentavosMap(
@@ -222,14 +251,6 @@ class SituacionFinancieraService
             'institucion' => $cuenta->institucion,
             'saldo_centavos' => (int) ($saldosCuentas[(int) $cuenta->cuenta_contable_id] ?? 0),
         ])->values();
-
-        $metas = MetaAhorro::withoutGlobalScopes()
-            ->where('usuario_id', $usuarioId)
-            ->where('estado', '!=', 'cancelada')
-            ->orderByDesc('prioridad')
-            ->orderBy('nombre')
-            ->limit(6)
-            ->get();
 
         $eventosMes = $this->calendario->mensual($usuarioId, $fecha->year, $fecha->month);
         $calendarioGrilla = $this->calendario->grillaMensual($fecha, $eventosMes);
@@ -266,8 +287,7 @@ class SituacionFinancieraService
             'cuentas' => $cuentas,
             'total_cuentas_centavos' => (int) $cuentas->sum('saldo_centavos'),
             'presupuesto_lineas' => $presupuesto?->lineas?->values() ?? collect(),
-            'metas' => $metas,
-            'detalle_deuda' => $this->detalleDeudaDestacada($usuarioId),
+            'deudas' => $this->listadoDeudas($usuarioId),
             'calendario_grilla' => $calendarioGrilla,
             'movimientos_recientes' => $movimientos,
         ];
@@ -289,41 +309,26 @@ class SituacionFinancieraService
         return $liquidezLibre - $dineroComprometido - $gastosProyectadosPendientes;
     }
 
-    /**
-     * @return list<int>
-     */
-    private function idsBolsillosMetaActiva(int $usuarioId): array
-    {
-        return MetaAhorro::withoutGlobalScopes()
-            ->where('usuario_id', $usuarioId)
-            ->where('estado', 'activa')
-            ->whereNotNull('cuenta_liquida_id')
-            ->pluck('cuenta_liquida_id')
-            ->map(fn ($id) => (int) $id)
-            ->unique()
-            ->values()
-            ->all();
-    }
-
     private function liquidezLibreHasta(int $usuarioId, Carbon $fin): int
     {
-        $bolsilloIds = $this->idsBolsillosMetaActiva($usuarioId);
+        $bolsilloIds = CuentasOperativas::idsBolsillosActivos($usuarioId);
         $cuentas = CuentaLiquida::withoutGlobalScopes()
             ->where('usuario_id', $usuarioId)
             ->where('estado', '!=', 'cancelada')
             ->when($bolsilloIds !== [], fn ($q) => $q->whereNotIn('id', $bolsilloIds))
             ->get();
 
-        return (int) $cuentas->sum(function (CuentaLiquida $cuenta) use ($fin): int {
-            $movimientos = DB::table('movimientos')->join('asientos', 'asientos.id', '=', 'movimientos.asiento_id')
-                ->where('movimientos.usuario_id', $cuenta->usuario_id)
-                ->where('movimientos.cuenta_contable_id', $cuenta->cuenta_contable_id)
-                ->whereDate('asientos.fecha', '<=', $fin->toDateString());
-            $debe = (int) (clone $movimientos)->sum('movimientos.debe_centavos');
-            $haber = (int) (clone $movimientos)->sum('movimientos.haber_centavos');
+        if ($cuentas->isEmpty()) {
+            return 0;
+        }
 
-            return $debe - $haber;
-        });
+        $saldos = CuentaContable::saldosCentavosMap(
+            $usuarioId,
+            $cuentas->pluck('cuenta_contable_id')->map(fn ($id) => (int) $id)->all(),
+            $fin->toDateString()
+        );
+
+        return (int) array_sum($saldos);
     }
 
     private function variacionPorcentaje(int $actual, int $anterior): ?float
@@ -335,30 +340,42 @@ class SituacionFinancieraService
         return round((($actual - $anterior) / abs($anterior)) * 100, 1);
     }
 
-    private function detalleDeudaDestacada(int $usuarioId): ?array
+    /**
+     * @return list<array<string, mixed>>
+     */
+    private function listadoDeudas(int $usuarioId): array
     {
+        $items = [];
+
         $prestamos = Prestamo::withoutGlobalScopes()
             ->where('usuario_id', $usuarioId)
             ->where('estado', '!=', 'cancelada')
-            ->get()
-            ->filter(fn (Prestamo $p) => $p->saldo_actual_centavos > 0)
-            ->sortByDesc(fn (Prestamo $p) => $p->saldo_actual_centavos)
-            ->values();
+            ->with(['cuotas' => fn ($q) => $q->orderBy('numero')])
+            ->get();
 
-        $prestamo = $prestamos->first();
-        if ($prestamo) {
-            $proxima = $prestamo->cuotas()->where('pagada', false)->orderBy('fecha_vencimiento')->first();
-            $pagadas = $prestamo->cuotas_pagadas;
-            $total = $prestamo->cuotas()->count();
+        foreach ($prestamos as $prestamo) {
+            $cuotas = $prestamo->cuotas;
+            $pendientes = $cuotas->where('pagada', false);
+            $saldo = (int) $pendientes->sum('capital_centavos');
+            if ($saldo <= 0) {
+                continue;
+            }
+            $proxima = $pendientes->sortBy('fecha_vencimiento')->first();
             $principal = (int) $prestamo->principal_centavos;
-            $saldo = $prestamo->saldo_actual_centavos;
+            $pagadas = $cuotas->where('pagada', true)->count();
+            $total = $cuotas->count();
             $avance = $principal > 0 ? round((($principal - $saldo) / $principal) * 100, 1) : 0;
 
-            return [
+            $estado = $prestamo->getAttributes()['estado'] ?? 'activa';
+            if ($pendientes->where('fecha_vencimiento', '<', now()->toDateString())->isNotEmpty()) {
+                $estado = 'vencida';
+            }
+
+            $items[] = [
                 'tipo' => 'prestamo',
                 'id' => $prestamo->id,
                 'nombre' => $prestamo->nombre,
-                'estado' => $prestamo->estado,
+                'estado' => $estado,
                 'saldo_centavos' => $saldo,
                 'principal_centavos' => $principal,
                 'avance_porcentaje' => $avance,
@@ -371,166 +388,48 @@ class SituacionFinancieraService
             ];
         }
 
-        $tarjeta = TarjetaCredito::withoutGlobalScopes()
+        $tarjetas = TarjetaCredito::withoutGlobalScopes()
             ->where('usuario_id', $usuarioId)
             ->where('activa', true)
-            ->get()
-            ->sortByDesc(fn (TarjetaCredito $t) => $t->saldo_actual_centavos)
-            ->first();
+            ->with(['compras.cuotasProgramadas'])
+            ->get();
 
-        if (! $tarjeta || $tarjeta->saldo_actual_centavos <= 0) {
-            return null;
-        }
-
-        $proxima = CuotaTarjeta::withoutGlobalScopes()
-            ->where('tarjeta_credito_id', $tarjeta->id)
-            ->where('pagada', false)
-            ->orderBy('fecha_vencimiento')
-            ->first();
-
-        return [
-            'tipo' => 'tarjeta',
-            'id' => $tarjeta->id,
-            'nombre' => $tarjeta->nombre,
-            'estado' => 'activa',
-            'saldo_centavos' => (int) $tarjeta->saldo_actual_centavos,
-            'principal_centavos' => (int) $tarjeta->cupo_centavos,
-            'avance_porcentaje' => $tarjeta->cupo_centavos > 0
-                ? round((1 - ($tarjeta->saldo_actual_centavos / $tarjeta->cupo_centavos)) * 100, 1)
-                : 0,
-            'cuota_centavos' => $proxima ? (int) $proxima->total_centavos : (int) $tarjeta->pago_minimo_centavos,
-            'ea_porcentaje' => (float) $tarjeta->ea_porcentaje,
-            'cuotas_pagadas' => null,
-            'cuotas_total' => null,
-            'proximo_pago' => $proxima?->fecha_vencimiento?->toDateString(),
-            'proximo_monto_centavos' => $proxima ? (int) $proxima->total_centavos : (int) $tarjeta->pago_minimo_centavos,
-        ];
-    }
-
-    private function evolucionPasivo(int $usuarioId, Carbon $fecha): array
-    {
-        return $this->evolucionSaldos($usuarioId, $fecha, NaturalezaCuenta::Pasivo);
-    }
-
-    private function evolucionPatrimonial(int $usuarioId, Carbon $fecha): array
-    {
-        $meses = [];
-        for ($i = 5; $i >= 0; $i--) {
-            $fin = $fecha->copy()->subMonths($i)->endOfMonth();
-            $activos = $this->saldoNaturalezaHasta($usuarioId, NaturalezaCuenta::Activo, $fin);
-            $pasivos = $this->saldoNaturalezaHasta($usuarioId, NaturalezaCuenta::Pasivo, $fin);
-            $meses[] = ['periodo' => $fin->format('m/Y'), 'centavos' => $activos - $pasivos];
-        }
-
-        return $meses;
-    }
-
-    private function evolucionSaldos(int $usuarioId, Carbon $fecha, NaturalezaCuenta $naturaleza): array
-    {
-        $meses = [];
-        for ($i = 5; $i >= 0; $i--) {
-            $fin = $fecha->copy()->subMonths($i)->endOfMonth();
-            $meses[] = ['periodo' => $fin->format('m/Y'), 'centavos' => $this->saldoNaturalezaHasta($usuarioId, $naturaleza, $fin)];
-        }
-
-        return $meses;
-    }
-
-    private function saldoNaturalezaHasta(int $usuarioId, NaturalezaCuenta $naturaleza, Carbon $fecha): int
-    {
-        $cuentas = CuentaContable::withoutGlobalScopes()->where('usuario_id', $usuarioId)
-            ->where('naturaleza', $naturaleza)->get();
-
-        return (int) $cuentas->sum(function (CuentaContable $cuenta) use ($fecha, $naturaleza): int {
-            $movimientos = DB::table('movimientos')->join('asientos', 'asientos.id', '=', 'movimientos.asiento_id')
-                ->where('movimientos.usuario_id', $cuenta->usuario_id)->where('movimientos.cuenta_contable_id', $cuenta->id)
-                ->whereDate('asientos.fecha', '<=', $fecha->toDateString());
-            $debe = (int) (clone $movimientos)->sum('movimientos.debe_centavos');
-            $haber = (int) (clone $movimientos)->sum('movimientos.haber_centavos');
-
-            return in_array($naturaleza, [NaturalezaCuenta::Activo, NaturalezaCuenta::Gasto], true) ? $debe - $haber : $haber - $debe;
-        });
-    }
-
-    /** Intereses reales = movimientos posteados a 5200 en el periodo (libro, no calendario). */
-    private function interesesPosteadosMes(int $usuarioId, Carbon $inicio, Carbon $fin): int
-    {
-        $cuentaId = CuentaContable::withoutGlobalScopes()
-            ->where('usuario_id', $usuarioId)->where('codigo', '5200')->value('id');
-        if (! $cuentaId) {
-            return 0;
-        }
-
-        $debe = (int) MovimientoLibro::withoutGlobalScopes()
-            ->where('usuario_id', $usuarioId)
-            ->where('cuenta_contable_id', $cuentaId)
-            ->whereHas('asiento', fn ($q) => $q->whereBetween('fecha', [$inicio->toDateString(), $fin->toDateString()]))
-            ->sum('debe_centavos');
-        $haber = (int) MovimientoLibro::withoutGlobalScopes()
-            ->where('usuario_id', $usuarioId)
-            ->where('cuenta_contable_id', $cuentaId)
-            ->whereHas('asiento', fn ($q) => $q->whereBetween('fecha', [$inicio->toDateString(), $fin->toDateString()]))
-            ->sum('haber_centavos');
-
-        return $debe - $haber;
-    }
-
-    private function deudaMayorCosto(int $usuarioId): ?array
-    {
-        $candidatos = collect();
-        foreach (Prestamo::withoutGlobalScopes()->where('usuario_id', $usuarioId)->where('estado', '!=', 'cancelada')->get() as $p) {
-            $interesRestante = (int) $p->cuotas()->where('pagada', false)->sum('interes_centavos');
-            if ($interesRestante <= 0 && (float) $p->ea_porcentaje <= 0) {
+        foreach ($tarjetas as $tarjeta) {
+            $compras = $tarjeta->compras;
+            $pagosCapital = (int) Pago::withoutGlobalScopes()
+                ->where('usuario_id', $usuarioId)
+                ->where('tarjeta_credito_id', $tarjeta->id)
+                ->sum('capital_centavos');
+            $saldo = (int) $compras->sum('monto_centavos') - $pagosCapital;
+            if ($saldo <= 0) {
                 continue;
             }
-            $candidatos->push([
-                'tipo' => 'prestamo',
-                'id' => $p->id,
-                'nombre' => $p->nombre,
-                'ea_porcentaje' => (float) $p->ea_porcentaje,
-                'interes_restante_centavos' => $interesRestante,
-            ]);
-        }
-        foreach (TarjetaCredito::withoutGlobalScopes()->where('usuario_id', $usuarioId)->where('activa', true)->get() as $t) {
-            $interesRestante = (int) CuotaTarjeta::withoutGlobalScopes()
-                ->where('tarjeta_credito_id', $t->id)->where('pagada', false)->sum('interes_centavos');
-            $candidatos->push([
-                'tipo' => 'tarjeta',
-                'id' => $t->id,
-                'nombre' => $t->nombre,
-                'ea_porcentaje' => (float) $t->ea_porcentaje,
-                'interes_restante_centavos' => $interesRestante,
-            ]);
-        }
 
-        return $candidatos->sort(function (array $a, array $b): int {
-            return [$b['ea_porcentaje'], $b['interes_restante_centavos']]
-                <=> [$a['ea_porcentaje'], $a['interes_restante_centavos']];
-        })->values()->first();
-    }
+            $cuotasPendientes = $compras->flatMap(fn ($c) => $c->cuotasProgramadas->where('pagada', false));
+            $proxima = $cuotasPendientes->sortBy('fecha_vencimiento')->first();
+            $cupo = (int) $tarjeta->cupo_centavos;
 
-    private function cuandoTermino(int $usuarioId): array
-    {
-        $items = [];
-        foreach (Prestamo::withoutGlobalScopes()->where('usuario_id', $usuarioId)->get() as $p) {
-            $ultima = $p->cuotas()->where('pagada', false)->orderByDesc('fecha_vencimiento')->first();
-            $items[] = [
-                'tipo' => 'prestamo',
-                'nombre' => $p->nombre,
-                'fecha' => $ultima?->fecha_vencimiento?->toDateString() ?? $p->fecha_vencimiento?->toDateString(),
-            ];
-        }
-        foreach (TarjetaCredito::withoutGlobalScopes()->where('usuario_id', $usuarioId)->where('activa', true)->get() as $t) {
-            $ultima = CuotaTarjeta::withoutGlobalScopes()
-                ->where('tarjeta_credito_id', $t->id)->where('pagada', false)
-                ->orderByDesc('fecha_vencimiento')->first();
             $items[] = [
                 'tipo' => 'tarjeta',
-                'nombre' => $t->nombre,
-                'fecha' => $ultima?->fecha_vencimiento?->toDateString(),
+                'id' => $tarjeta->id,
+                'nombre' => $tarjeta->nombre,
+                'estado' => 'activa',
+                'saldo_centavos' => $saldo,
+                'principal_centavos' => $cupo,
+                'avance_porcentaje' => $cupo > 0 ? round((1 - ($saldo / $cupo)) * 100, 1) : 0,
+                'cuota_centavos' => $proxima
+                    ? ((int) $proxima->capital_centavos + (int) $proxima->interes_centavos)
+                    : 0,
+                'ea_porcentaje' => (float) $tarjeta->ea_porcentaje,
+                'cuotas_pagadas' => null,
+                'cuotas_total' => null,
+                'proximo_pago' => $proxima?->fecha_vencimiento?->toDateString(),
+                'proximo_monto_centavos' => $proxima
+                    ? ((int) $proxima->capital_centavos + (int) $proxima->interes_centavos)
+                    : null,
             ];
         }
 
-        return collect($items)->filter(fn ($i) => $i['fecha'])->sortBy('fecha')->values()->all();
+        return collect($items)->sortByDesc('saldo_centavos')->values()->all();
     }
 }

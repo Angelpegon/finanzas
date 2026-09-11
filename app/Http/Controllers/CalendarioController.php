@@ -11,7 +11,7 @@ class CalendarioController extends Controller
 {
     public function __invoke(Request $request, CalendarioFinancieroService $calendario): View
     {
-        $anio = (int) ($request->integer('anio') ?: now()->year);
+        $anio = max(2000, min(2100, (int) ($request->integer('anio') ?: now()->year)));
         $mes = max(1, min(12, (int) ($request->integer('mes') ?: now()->month)));
         $fecha = now()->copy()->setDate($anio, $mes, 1)->startOfMonth();
 

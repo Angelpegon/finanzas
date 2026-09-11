@@ -22,4 +22,9 @@ class CuotaTarjeta extends Model
     {
         return $this->belongsTo(CompraTarjeta::class, 'compra_tarjeta_id');
     }
+
+    public function tarjetaCredito(): \Illuminate\Database\Eloquent\Relations\BelongsTo
+    {
+        return $this->belongsTo(TarjetaCredito::class, 'tarjeta_credito_id');
+    }
 }

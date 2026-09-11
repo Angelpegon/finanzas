@@ -5,9 +5,14 @@ namespace App\Services;
 use App\Models\CuotaPrestamo;
 use App\Models\CuotaTarjeta;
 use App\Models\MetaAhorro;
-use App\Models\Recurrencia;
+use App\Support\AgregadosLibro;
+use App\Support\RecurrenciaMensual;
 use Illuminate\Support\Carbon;
 
+/**
+ * Forecast de lectura (no escribe libro). Alineado a calendario en recurrencias
+ * (unico/anual/cobertura) y carga cuotas vencidas arrastradas en el mes corriente.
+ */
 class ProyeccionService
 {
     public function horizonteMensual(int $usuarioId, ?Carbon $fecha = null): array
@@ -15,54 +20,58 @@ class ProyeccionService
         $fecha ??= now();
         $inicio = $fecha->copy()->startOfMonth();
         $fin = $fecha->copy()->endOfMonth();
-        $ingresos = \App\Support\AgregadosLibro::ingresosReales($usuarioId, $inicio, $fin);
-        $gastos = \App\Support\AgregadosLibro::gastosReales($usuarioId, $inicio, $fin);
-        $cuotasPrestamo = (int) CuotaPrestamo::withoutGlobalScopes()->where('usuario_id', $usuarioId)
-            ->where('pagada', false)->whereBetween('fecha_vencimiento', [$inicio, $fin])
-            ->get()->sum(fn (CuotaPrestamo $cuota): int => (int) $cuota->total_centavos);
-        $cuotasTarjeta = (int) CuotaTarjeta::withoutGlobalScopes()->where('usuario_id', $usuarioId)
-            ->where('pagada', false)->whereBetween('fecha_vencimiento', [$inicio, $fin])
-            ->get()->sum(fn (CuotaTarjeta $cuota): int => (int) ($cuota->capital_centavos + $cuota->interes_centavos));
-        $recurrenteIngreso = $this->montoMensualRecurrente($usuarioId, 'ingreso');
-        $recurrenteGasto = $this->montoMensualRecurrente($usuarioId, 'gasto');
-        $metas = (int) MetaAhorro::withoutGlobalScopes()
-            ->where('usuario_id', $usuarioId)
-            ->where('estado', 'activa')
-            ->sum('aporte_mensual_centavos');
+
+        $ingresos = AgregadosLibro::ingresosReales($usuarioId, $inicio, $fin);
+        $gastos = AgregadosLibro::gastosReales($usuarioId, $inicio, $fin);
+        $ingresosPendientes = RecurrenciaMensual::sumaPendiente($usuarioId, 'ingreso', $inicio);
+        $gastosPendientes = RecurrenciaMensual::sumaPendiente($usuarioId, 'gasto', $inicio);
+        $cuotas = $this->cuotasComprometidasHasta($usuarioId, $fin);
+        $metas = app(MetaAhorroService::class)->comprometidoMensualNeto($usuarioId, $fecha, true);
+
+        $ingresosEfectivos = $ingresos + $ingresosPendientes;
+        $gastosEfectivos = $gastos + $gastosPendientes;
 
         return [
-            'ingresos' => max($ingresos, $recurrenteIngreso),
-            'gastos' => max($gastos, $recurrenteGasto),
-            'cuotas' => $cuotasPrestamo + $cuotasTarjeta,
+            'ingresos' => $ingresosEfectivos,
+            'gastos' => $gastosEfectivos,
+            'cuotas' => $cuotas,
             'metas' => $metas,
-            'capacidad_ahorro' => $ingresos + $recurrenteIngreso - $gastos - $recurrenteGasto - $cuotasPrestamo - $cuotasTarjeta - $metas,
+            'capacidad_ahorro' => $ingresosEfectivos - $gastosEfectivos - $cuotas - $metas,
         ];
     }
 
     /**
-     * Devuelve únicamente salidas e ingresos esperados, sin mezclar hechos
-     * ya registrados. Las cuotas pendientes representan la deuda programada;
-     * los pagos futuros de obligaciones se excluyen para no duplicarla.
+     * Meses futuros/corriente: ingresos y gastos esperados (reales del mes +
+     * recurrencia pendiente). Deudas = cuotas del mes; en el mes 0 también
+     * arrastra vencidas. Residual = flujo del mes sin saldo inicial de caja.
      */
     public function meses(int $usuarioId, ?Carbon $desde = null, int $cantidad = 6): array
     {
         $desde ??= now();
         $cantidad = max(1, min(12, $cantidad));
         $resultado = [];
+        $faltanteMetas = $this->faltanteMetasActivas($usuarioId);
 
         for ($indice = 0; $indice < $cantidad; $indice++) {
             $mes = $desde->copy()->startOfMonth()->addMonths($indice);
             $inicio = $mes->copy()->startOfMonth();
             $fin = $mes->copy()->endOfMonth();
-            $ingresos = $this->montoMensualRecurrente($usuarioId, 'ingreso');
-            $gastos = $this->montoMensualRecurrente($usuarioId, 'gasto');
-            $deudas = (int) CuotaPrestamo::withoutGlobalScopes()->where('usuario_id', $usuarioId)
-                ->where('pagada', false)->whereBetween('fecha_vencimiento', [$inicio, $fin])
-                ->get()->sum(fn (CuotaPrestamo $cuota): int => $cuota->total_centavos)
-                + (int) CuotaTarjeta::withoutGlobalScopes()->where('usuario_id', $usuarioId)
-                    ->where('pagada', false)->whereBetween('fecha_vencimiento', [$inicio, $fin])
-                    ->get()->sum(fn (CuotaTarjeta $cuota): int => $cuota->total_centavos);
-            $pagos = 0;
+
+            if ($indice === 0) {
+                $ingresosReales = AgregadosLibro::ingresosReales($usuarioId, $inicio, $fin);
+                $gastosReales = AgregadosLibro::gastosReales($usuarioId, $inicio, $fin);
+                $ingresos = $ingresosReales + RecurrenciaMensual::sumaPendiente($usuarioId, 'ingreso', $inicio);
+                $gastos = $gastosReales + RecurrenciaMensual::sumaPendiente($usuarioId, 'gasto', $inicio);
+                $deudas = $this->cuotasComprometidasHasta($usuarioId, $fin);
+            } else {
+                $ingresos = RecurrenciaMensual::sumaBruta($usuarioId, 'ingreso', $inicio);
+                $gastos = RecurrenciaMensual::sumaBruta($usuarioId, 'gasto', $inicio);
+                $deudas = $this->cuotasEnMes($usuarioId, $inicio, $fin);
+            }
+
+            $planMetas = app(MetaAhorroService::class)->comprometidoMensualNeto($usuarioId, $mes, false);
+            $metas = min($planMetas, $faltanteMetas);
+            $faltanteMetas = max(0, $faltanteMetas - $metas);
 
             $resultado[] = [
                 'periodo' => $mes->format('Y-m'),
@@ -70,8 +79,8 @@ class ProyeccionService
                 'ingresos_centavos' => $ingresos,
                 'gastos_centavos' => $gastos,
                 'deudas_centavos' => $deudas,
-                'pagos_centavos' => $pagos,
-                'disponible_centavos' => $ingresos - $gastos - $deudas,
+                'metas_centavos' => $metas,
+                'residual_centavos' => $ingresos - $gastos - $deudas - $metas,
                 'estado' => 'proyectado',
             ];
         }
@@ -79,19 +88,53 @@ class ProyeccionService
         return $resultado;
     }
 
-    private function montoMensualRecurrente(int $usuarioId, string $tipo): int
+    /** Cuotas del mes + vencidas impagas con fecha ≤ fin (compromiso de caja actual). */
+    private function cuotasComprometidasHasta(int $usuarioId, Carbon $fin): int
     {
-        return (int) Recurrencia::withoutGlobalScopes()->where('usuario_id', $usuarioId)
-            ->where('tipo', $tipo)->where('activa', true)->get()
-            ->sum(function (Recurrencia $recurrencia): int {
-                return match ($recurrencia->periodicidad) {
-                    'diario' => $recurrencia->monto_centavos * 30,
-                    'semanal' => $recurrencia->monto_centavos * 4,
-                    'quincenal' => $recurrencia->monto_centavos * 2,
-                    'anual' => intdiv($recurrencia->monto_centavos, 12),
-                    'unico' => 0,
-                    default => $recurrencia->monto_centavos,
-                };
-            });
+        $limite = $fin->toDateString();
+
+        $prestamo = (int) CuotaPrestamo::withoutGlobalScopes()
+            ->where('usuario_id', $usuarioId)
+            ->where('pagada', false)
+            ->whereDate('fecha_vencimiento', '<=', $limite)
+            ->get()
+            ->sum(fn (CuotaPrestamo $c): int => (int) $c->total_centavos);
+
+        $tarjeta = (int) CuotaTarjeta::withoutGlobalScopes()
+            ->where('usuario_id', $usuarioId)
+            ->where('pagada', false)
+            ->whereDate('fecha_vencimiento', '<=', $limite)
+            ->get()
+            ->sum(fn (CuotaTarjeta $c): int => (int) $c->total_centavos);
+
+        return $prestamo + $tarjeta;
+    }
+
+    private function cuotasEnMes(int $usuarioId, Carbon $inicio, Carbon $fin): int
+    {
+        $prestamo = (int) CuotaPrestamo::withoutGlobalScopes()
+            ->where('usuario_id', $usuarioId)
+            ->where('pagada', false)
+            ->whereBetween('fecha_vencimiento', [$inicio->toDateString(), $fin->toDateString()])
+            ->get()
+            ->sum(fn (CuotaPrestamo $c): int => (int) $c->total_centavos);
+
+        $tarjeta = (int) CuotaTarjeta::withoutGlobalScopes()
+            ->where('usuario_id', $usuarioId)
+            ->where('pagada', false)
+            ->whereBetween('fecha_vencimiento', [$inicio->toDateString(), $fin->toDateString()])
+            ->get()
+            ->sum(fn (CuotaTarjeta $c): int => (int) $c->total_centavos);
+
+        return $prestamo + $tarjeta;
+    }
+
+    private function faltanteMetasActivas(int $usuarioId): int
+    {
+        return (int) MetaAhorro::withoutGlobalScopes()
+            ->where('usuario_id', $usuarioId)
+            ->where('estado', 'activa')
+            ->get()
+            ->sum(fn (MetaAhorro $m): int => max(0, (int) $m->objetivo_centavos - (int) $m->monto_actual_centavos));
     }
 }

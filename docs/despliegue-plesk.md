@@ -72,6 +72,10 @@ Tras cambiar `.env`: `php artisan config:cache`.
 
 1. Sube el código (Git pull o SFTP) **sin** `.env` de local.
 2. En el servidor: crea `.env`, `composer install --no-dev` (si no viene `vendor`).
+   En Plesk **no** ejecutes `composer` a secas: el shebang suele ser PHP 5.x del OS.
+   Usa el PHP del dominio, p. ej.
+   `/opt/plesk/php/8.3/bin/php $(which composer) install --no-dev`
+   (o `bash scripts/deploy-plesk.sh`, que ya lo hace así).
 3. Asegura `public/build` (Vite). Si no hay Node en el servidor, genera en local con `npm run build` y sube `public/build/`.
 4. Ejecuta:
 
@@ -120,6 +124,13 @@ El tarball incluye `vendor` y `public/build`; **no** incluye `.env`.
 4. Un ingreso/gasto de prueba y dashboard con saldos.
 5. `storage/logs/laravel.log` sin errores de permisos.
 6. `GET /diag-finanzas.php` (y hermanos) → **404**.
+7. PWA: en iOS Safari → Compartir → Añadir a pantalla de inicio; el SW
+   debe responder en `/sw.js` (o `/finanzas/sw.js`) con header
+   `Service-Worker-Allowed` al path de `APP_URL` (lo emite Laravel, no el
+   `.htaccess` estático). Tras deploy de `public/assets` o `sw.js`, bumpea
+   `finanzas-pwa-vN` en `public/sw.js` (o confía en network-first de
+   `/assets/` + `/build/`). Si el banner “Hay una actualización” aparece,
+   recarga una vez en el iPhone.
 
 ## Fallos frecuentes
 

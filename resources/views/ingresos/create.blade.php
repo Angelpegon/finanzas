@@ -1,16 +1,24 @@
 @extends('layouts.app', [
     'title' => 'Registrar ingreso',
     'heading' => '¿Cuánto recibiste?',
-    'subtitle' => 'Los ingresos recurrentes solo proyectan; no cambian tu saldo hasta que los recibas.',
-    'backUrl' => route('app.situacion'),
-    'backLabel' => 'Volver al resumen',
+    'subtitle' => 'Cobro real suma al saldo. Recurrente proyecta; puedes registrar también el de esta fecha.',
+    'backUrl' => route('app.ingresos.index'),
+    'backLabel' => 'Volver a ingresos',
 ])
 @section('content')
 <div class="capture-flow">
-    <p class="capture-hint"><strong>Ingreso real</strong> suma a tu cuenta. Márcalo como recurrente si solo quieres proyectarlo.</p>
+    @if($cuentas->isEmpty())
+        <div class="alert alert-light empty-state">
+            Necesitas una cuenta operativa antes de registrar ingresos.
+            <a href="{{ route('app.cuentas.create') }}">Crear cuenta</a>.
+        </div>
+    @else
+    <p class="capture-hint"><strong>Ingreso real</strong> suma a tu cuenta. Activa <strong>recurrente</strong> solo si quieres proyectarlo hacia adelante.</p>
     @include('layouts.partials.form-errors')
-    <form method="POST" action="{{ route('app.ingresos.store') }}" class="dash-card form-panel" novalidate>
+    <form method="POST" action="{{ route('app.ingresos.store') }}" class="dash-card form-panel" novalidate data-recurrente-form>
         @csrf
+        <input type="hidden" name="idempotency_key" value="{{ old('idempotency_key', $idempotencyKey) }}">
+
         <div class="money-hero">
             <label class="form-label" for="monto">Monto en pesos</label>
             <input id="monto" name="monto" type="text" inputmode="decimal" data-miles value="{{ old('monto') }}" class="form-control form-control-lg @error('monto') is-invalid @enderror" placeholder="0" autocomplete="off" required>
@@ -59,21 +67,32 @@
                 <p class="form-section__eyebrow">Plan</p>
                 <h2 class="form-section__title">¿Se repite?</h2>
             </div>
-            <div>
-                <label class="form-label" for="periodicidad">Periodicidad</label>
-                <select id="periodicidad" name="periodicidad" class="form-select form-select-lg @error('periodicidad') is-invalid @enderror" required>
-                    @foreach(['unico'=>'Único','diario'=>'Diario','semanal'=>'Semanal','quincenal'=>'Quincenal','mensual'=>'Mensual','anual'=>'Anual'] as $valor => $texto)
-                        <option value="{{ $valor }}" @selected(old('periodicidad', 'unico') === $valor)>{{ $texto }}</option>
-                    @endforeach
-                </select>
-                @include('layouts.partials.field-error', ['name' => 'periodicidad'])
-            </div>
             <div class="form-switch-card">
                 <div class="form-check form-switch">
-                    <input id="recurrente" name="recurrente" value="1" type="checkbox" class="form-check-input" @checked(old('recurrente'))>
+                    <input id="recurrente" name="recurrente" value="1" type="checkbox" class="form-check-input" data-recurrente-toggle @checked(old('recurrente'))>
                     <label for="recurrente" class="form-check-label">Es un ingreso recurrente</label>
                 </div>
-                <small class="text-secondary">Se guardará como proyección, sin sumarlo al saldo recibido.</small>
+                <small class="text-secondary">Crea una proyección. Puedes registrar también el cobro de esta fecha.</small>
+            </div>
+
+            <div class="mt-3" data-recurrente-fields @if(! old('recurrente')) hidden @endif>
+                <div>
+                    <label class="form-label" for="periodicidad">Periodicidad</label>
+                    <select id="periodicidad" name="periodicidad" class="form-select form-select-lg @error('periodicidad') is-invalid @enderror" data-recurrente-periodicidad>
+                        <option value="">Selecciona</option>
+                        @foreach(['diario'=>'Diario','semanal'=>'Semanal','quincenal'=>'Quincenal','mensual'=>'Mensual','anual'=>'Anual'] as $valor => $texto)
+                            <option value="{{ $valor }}" @selected(old('periodicidad', 'mensual') === $valor)>{{ $texto }}</option>
+                        @endforeach
+                    </select>
+                    @include('layouts.partials.field-error', ['name' => 'periodicidad'])
+                </div>
+                <div class="form-switch-card mt-3">
+                    <div class="form-check form-switch">
+                        <input id="recibido" name="recibido" value="1" type="checkbox" class="form-check-input" @checked(old('recibido', '1') == '1')>
+                        <label for="recibido" class="form-check-label">También registrar el cobro de esta fecha</label>
+                    </div>
+                    <small class="text-secondary">Si lo desmarcas, solo queda la proyección (sin mover saldo).</small>
+                </div>
             </div>
         </section>
 
@@ -81,5 +100,6 @@
             <button class="btn btn-primary btn-lg w-100" type="submit">Guardar ingreso</button>
         </div>
     </form>
+    @endif
 </div>
 @endsection

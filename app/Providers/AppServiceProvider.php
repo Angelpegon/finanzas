@@ -5,6 +5,7 @@ namespace App\Providers;
 use App\Services\AlertaService;
 use App\Services\SituacionFinancieraService;
 use App\Support\UrlPrefix;
+use Illuminate\Pagination\Paginator;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Blade;
 use Illuminate\Support\Facades\URL;
@@ -20,6 +21,8 @@ class AppServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
+        Paginator::useBootstrapFive();
+
         $root = rtrim((string) config('app.url'), '/');
         $forceHttps = $this->app->environment('production') || (bool) config('app.force_https');
 
@@ -52,13 +55,12 @@ class AppServiceProvider extends ServiceProvider
                 return;
             }
 
-            static $cache = [];
-            static $alertasCache = [];
-            $id = Auth::id();
+            $id = (int) Auth::id();
 
+            // Sin static de proceso: en PHP-FPM mentía disponible/alertas entre requests.
+            // resumenShell usa Cache Laravel + olvidarResumenShell al postear.
             if (! $view->offsetExists('situacion')) {
-                $cache[$id] ??= app(SituacionFinancieraService::class)->resumenShell($id);
-                $view->with('situacion', $cache[$id]);
+                $view->with('situacion', app(SituacionFinancieraService::class)->resumenShell($id));
             }
 
             if (! $view->offsetExists('alertas')) {
@@ -66,9 +68,21 @@ class AppServiceProvider extends ServiceProvider
                 if (isset($situacion['alertas']) && is_array($situacion['alertas'])) {
                     $view->with('alertas', $situacion['alertas']);
                 } else {
-                    $alertasCache[$id] ??= app(AlertaService::class)->evaluar($id, $situacion);
-                    $view->with('alertas', $alertasCache[$id]);
+                    $view->with('alertas', app(AlertaService::class)->evaluar($id, $situacion));
                 }
+            }
+
+            // Chip móvil: disponible de “hoy”. En Situación el payload puede ser otro mes.
+            if (! $view->offsetExists('disponibleShell')) {
+                $situacion = $view->offsetGet('situacion');
+                $esDashboardDenso = array_key_exists('calendario_grilla', $situacion)
+                    || array_key_exists('cuentas', $situacion);
+                $view->with(
+                    'disponibleShell',
+                    $esDashboardDenso
+                        ? (int) (app(SituacionFinancieraService::class)->resumenShell($id)['dinero_disponible_real_centavos'] ?? 0)
+                        : (int) ($situacion['dinero_disponible_real_centavos'] ?? 0)
+                );
             }
         });
     }

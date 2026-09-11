@@ -37,12 +37,16 @@
         </div>
         <div class="cal-summary cal-summary--money">
             <div class="cal-summary__item">
-                <span>Ingresos del mes</span>
+                <span>Ingresos reales</span>
                 <strong class="text-success">@cop($resumen['ingresos_centavos'])</strong>
             </div>
             <div class="cal-summary__item">
-                <span>Salidas del mes</span>
+                <span>Salidas reales</span>
                 <strong>@cop($resumen['salidas_centavos'])</strong>
+            </div>
+            <div class="cal-summary__item">
+                <span>Compromisos</span>
+                <strong class="text-secondary">@cop($resumen['salidas_proyectadas_centavos'] ?? 0)</strong>
             </div>
         </div>
     </div>
@@ -111,8 +115,9 @@
                         $iconoEvento = match ($evento['tipo']) {
                             'ingreso' => 'arrow-up',
                             'gasto' => 'arrow-down',
-                            'pago', 'cuota', 'limite_tarjeta' => 'banknote',
+                            'pago', 'cuota' => 'banknote',
                             'corte' => 'credit-card',
+                            'aporte_meta', 'retiro_meta' => 'piggy-bank',
                             default => 'circle',
                         };
                         $estadoClase = match ($evento['estado']) {
@@ -120,12 +125,19 @@
                             'proyectado' => 'is-projected',
                             default => 'is-real',
                         };
+                        $enlace = $evento['enlace'] ?? null;
                     @endphp
                     <article class="cal-event {{ $estadoClase }}">
                         <div class="cal-event__icon">@include('layouts.partials.icon', ['name' => $iconoEvento, 'class' => 'ui-icon ui-icon--sm'])</div>
                         <div class="cal-event__body">
                             <div class="cal-event__row">
-                                <h3>{{ $evento['descripcion'] }}</h3>
+                                <h3>
+                                    @if($enlace)
+                                        <a href="{{ $enlace }}" class="cal-event__link">{{ $evento['descripcion'] }}</a>
+                                    @else
+                                        {{ $evento['descripcion'] }}
+                                    @endif
+                                </h3>
                                 <strong class="{{ $evento['tipo'] === 'ingreso' ? 'text-success' : '' }}">
                                     @if($evento['monto_centavos'] > 0)@cop($evento['monto_centavos'])@else — @endif
                                 </strong>
@@ -133,6 +145,9 @@
                             <div class="cal-event__meta">
                                 <span>{{ ucfirst(str_replace('_', ' ', $evento['tipo'])) }}</span>
                                 <span class="cal-event__state">{{ ucfirst($evento['estado']) }}</span>
+                                @if($enlace)
+                                    <a href="{{ $enlace }}" class="cal-event__cta">Ir</a>
+                                @endif
                             </div>
                         </div>
                     </article>

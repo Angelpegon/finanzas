@@ -25,9 +25,18 @@ class TarjetaRequest extends FormRequest
             'entidad' => ['required', 'string', 'max:120'],
             'nombre' => ['required', 'string', 'max:120'],
             'cupo' => ['required', 'numeric', 'gt:0'],
-            'tasa' => ['required', 'numeric', 'min:0'],
+            'tasa_compras_mensual' => ['required', 'numeric', 'min:0'],
+            'tasa_avances_mensual' => ['required', 'numeric', 'min:0'],
             'dia_corte' => ['required', 'integer', 'between:1,31'],
             'dia_pago' => ['required', 'integer', 'between:1,31'],
+            'idempotency_key' => ['required', 'string', 'max:64', 'regex:/^[A-Za-z0-9_-]+$/'],
+        ];
+    }
+
+    protected function mensajesExtra(): array
+    {
+        return [
+            'idempotency_key.required' => 'Recarga el formulario e intenta de nuevo.',
         ];
     }
 }

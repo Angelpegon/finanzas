@@ -19,9 +19,10 @@ final class ErrorDominio
         return match (true) {
             str_contains($lower, 'cuenta cancelada') || str_contains($lower, 'ya está cancelada') => ['form' => $msg],
             str_contains($lower, 'bolsillo de una meta') || str_contains($lower, 'préstamo con cuotas') => ['form' => $msg],
+            str_contains($lower, 'archivar con saldo') || str_contains($lower, 'transferir los fondos') => ['cuenta_destino_id' => $msg],
             str_contains($lower, 'tiene saldo') || str_contains($lower, 'dar de baja') || str_contains($lower, 'transfiere') => ['disposicion' => $msg],
-            str_contains($lower, 'cuenta destino') => ['cuenta_destino_id' => $msg],
-            str_contains($lower, 'cuenta de referencia') || str_contains($lower, 'cuenta operativa') => ['cuenta_liquida_id' => $msg],
+            str_contains($lower, 'cuenta destino') || str_contains($lower, 'cuenta operativa activa como destino') => ['cuenta_destino_id' => $msg],
+            str_contains($lower, 'cuenta de referencia') || str_contains($lower, 'elige una cuenta operativa') => ['cuenta_liquida_id' => $msg],
             str_contains($lower, 'referencia') => ['referencia' => $msg],
             str_contains($lower, 'categoría') || str_contains($lower, 'categoria') => ['categoria_id' => $msg],
             str_contains($lower, 'saldo insuficiente') => ['cuenta_liquida_id' => $msg],

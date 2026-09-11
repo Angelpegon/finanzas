@@ -5,9 +5,11 @@ namespace Tests\Feature;
 use App\Enums\TipoHechoTesoreria;
 use App\Models\Categoria;
 use App\Models\CuentaLiquida;
+use App\Services\MetaAhorroService;
 use App\Services\SituacionFinancieraService;
 use App\Services\TesoreriaService;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
 use Tests\CreaUsuarioConCatalogo;
 use Tests\TestCase;
 
@@ -15,7 +17,7 @@ class DashboardSituacionTest extends TestCase
 {
     use CreaUsuarioConCatalogo;
 
-    public function test_dashboard_expone_widgets_sin_graficas_y_campana(): void
+    public function test_dashboard_expone_widgets_sin_metas_ni_graficas(): void
     {
         $this->withoutVite();
         $usuario = $this->usuarioConCatalogo(['nombre' => 'Andrés']);
@@ -23,21 +25,92 @@ class DashboardSituacionTest extends TestCase
         $this->actingAs($usuario)
             ->get(route('app.situacion'))
             ->assertOk()
-            ->assertSee('Dashboard')
+            ->assertSee('Situación')
+            ->assertSee('Disponible libre')
+            ->assertSee('Cuentas operativas')
+            ->assertSee('Total operativo')
             ->assertSee('Ingresos del mes')
             ->assertSee('Próximos pagos')
             ->assertSee('Presupuesto')
-            ->assertSee('Metas de ahorro')
             ->assertSee('Calendario financiero')
-            ->assertSee('Cuentas')
-            ->assertSee('Movimientos recientes')
             ->assertSee('Acciones rápidas')
-            ->assertSee('header-bell', false)
-            ->assertSee('fa-bell', false)
-            ->assertSee('data-bs-toggle="dropdown"', false)
-            ->assertSee('data-bs-toggle="offcanvas"', false)
+            ->assertSee('Nuevo crédito')
+            ->assertDontSee('Metas de ahorro')
+            ->assertDontSee('Nueva meta')
             ->assertDontSee('Flujo de caja')
             ->assertDontSee('Gastos por categoría');
+    }
+
+    public function test_dashboard_acepta_selector_de_mes(): void
+    {
+        $this->withoutVite();
+        $usuario = $this->usuarioConCatalogo();
+
+        $this->actingAs($usuario)
+            ->get(route('app.situacion', ['anio' => 2026, 'mes' => 2]))
+            ->assertOk()
+            ->assertSee('Febrero 2026')
+            ->assertSee('Hoy');
+    }
+
+    public function test_rail_excluye_bolsillos_de_meta(): void
+    {
+        $usuario = $this->usuarioConCatalogo();
+        $origen = CuentaLiquida::withoutGlobalScopes()->where('usuario_id', $usuario->id)->firstOrFail();
+        app(TesoreriaService::class)->registrar(
+            $usuario->id,
+            TipoHechoTesoreria::Apertura,
+            now()->toDateString(),
+            500_000_00,
+            $origen->id
+        );
+        $meta = app(MetaAhorroService::class)->crear(
+            $usuario->id,
+            'Viaje',
+            1_000_000_00,
+            null,
+            0,
+            $origen->id
+        );
+
+        $datos = app(SituacionFinancieraService::class)->responder($usuario->id, null, true);
+        $ids = collect($datos['cuentas'])->pluck('id')->all();
+
+        $this->assertNotContains((int) $meta->cuenta_liquida_id, $ids);
+        $this->assertContains((int) $origen->id, $ids);
+        $this->assertArrayNotHasKey('metas', $datos);
+        $this->assertArrayNotHasKey('evolucion_patrimonial', $datos);
+        $this->assertArrayHasKey('deudas', $datos);
+    }
+
+    public function test_resumen_shell_se_cachea_y_se_invalida_al_contabilizar(): void
+    {
+        Cache::flush();
+        $usuario = $this->usuarioConCatalogo();
+        $servicio = app(SituacionFinancieraService::class);
+
+        $primero = $servicio->resumenShell($usuario->id);
+        $this->assertTrue(Cache::has(SituacionFinancieraService::claveCacheShell($usuario->id)));
+        $this->assertArrayHasKey('alertas', $primero);
+        $this->assertIsArray($primero['alertas']);
+
+        $cuenta = CuentaLiquida::withoutGlobalScopes()->where('usuario_id', $usuario->id)->firstOrFail();
+        $cat = Categoria::withoutGlobalScopes()->where('usuario_id', $usuario->id)->where('tipo', 'ingreso')->firstOrFail();
+        app(TesoreriaService::class)->registrar(
+            $usuario->id,
+            TipoHechoTesoreria::Ingreso,
+            now()->toDateString(),
+            100_000_00,
+            $cuenta->id,
+            $cat->id
+        );
+
+        $this->assertFalse(Cache::has(SituacionFinancieraService::claveCacheShell($usuario->id)));
+        $segundo = $servicio->resumenShell($usuario->id);
+        $this->assertGreaterThan(
+            $primero['dinero_disponible_real_centavos'],
+            $segundo['dinero_disponible_real_centavos']
+        );
     }
 
     public function test_variacion_mom_de_ingresos_es_real(): void

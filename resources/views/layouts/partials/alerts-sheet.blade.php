@@ -8,6 +8,9 @@
             <div class="header-alerts__item header-alerts__item--{{ $alerta['nivel'] }}">
                 <strong>{{ $alerta['titulo'] }}</strong>
                 <span>{{ $alerta['mensaje'] }}</span>
+                @if(!empty($alerta['enlace']))
+                    <a href="{{ $alerta['enlace'] }}" class="header-alerts__link">Ver</a>
+                @endif
             </div>
         @empty
             <p class="header-alerts__empty">Sin alertas por ahora.</p>

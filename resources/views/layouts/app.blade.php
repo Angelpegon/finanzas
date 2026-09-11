@@ -16,10 +16,10 @@
     @auth
         @php
             $navTablet = [
-                ['ruta' => 'app.situacion', 'patron' => 'app.situacion', 'etiqueta' => 'Inicio'],
+                ['ruta' => 'app.situacion', 'patron' => 'app.situacion', 'etiqueta' => 'Situación'],
                 ['ruta' => 'app.cuentas.index', 'patron' => 'app.cuentas.*', 'etiqueta' => 'Cuentas'],
-                ['ruta' => 'app.ingresos.create', 'patron' => 'app.ingresos.*', 'etiqueta' => 'Ingresos'],
-                ['ruta' => 'app.gastos.create', 'patron' => 'app.gastos.*', 'etiqueta' => 'Gastos'],
+                ['ruta' => 'app.ingresos.index', 'patron' => 'app.ingresos.*', 'etiqueta' => 'Ingresos'],
+                ['ruta' => 'app.gastos.index', 'patron' => 'app.gastos.*', 'etiqueta' => 'Gastos'],
                 ['ruta' => 'app.pagos.index', 'patron' => 'app.pagos.*', 'etiqueta' => 'Movimientos'],
                 ['ruta' => 'app.deudas.index', 'patron' => 'app.deudas.*', 'etiqueta' => 'Deudas'],
                 ['ruta' => 'app.tarjetas.index', 'patron' => 'app.tarjetas.*', 'etiqueta' => 'Tarjetas'],
@@ -48,23 +48,23 @@
             <nav class="sidebar-nav">
                 <a class="{{ request()->routeIs('app.situacion') ? 'active' : '' }}" href="{{ route('app.situacion') }}">
                     @include('layouts.partials.icon', ['name' => 'chart', 'class' => 'ui-icon ui-icon--sm'])
-                    <span>Dashboard</span></a>
+                    <span>Situación</span></a>
                 <p>Finanzas</p>
                 <a class="{{ request()->routeIs('app.cuentas.*') ? 'active' : '' }}"
                     href="{{ route('app.cuentas.index') }}">
                     @include('layouts.partials.icon', ['name' => 'wallet', 'class' => 'ui-icon ui-icon--sm'])
                     <span>Cuentas</span></a>
                 <a class="{{ request()->routeIs('app.ingresos.*') ? 'active' : '' }}"
-                    href="{{ route('app.ingresos.create') }}">
+                    href="{{ route('app.ingresos.index') }}">
                     @include('layouts.partials.icon', ['name' => 'arrow-up', 'class' => 'ui-icon ui-icon--sm'])
                     <span>Ingresos</span></a>
                 <a class="{{ request()->routeIs('app.gastos.*') ? 'active' : '' }}"
-                    href="{{ route('app.gastos.create') }}">
+                    href="{{ route('app.gastos.index') }}">
                     @include('layouts.partials.icon', ['name' => 'arrow-down', 'class' => 'ui-icon ui-icon--sm'])
                     <span>Gastos</span></a>
                 <a class="{{ request()->routeIs('app.pagos.*') ? 'active' : '' }}" href="{{ route('app.pagos.index') }}">
                     @include('layouts.partials.icon', ['name' => 'exchange', 'class' => 'ui-icon ui-icon--sm'])
-                    <span>Transferencias</span></a>
+                    <span>Movimientos</span></a>
                 <p>Deudas</p>
                 <a class="{{ request()->routeIs('app.deudas.*') ? 'active' : '' }}"
                     href="{{ route('app.deudas.index') }}">
@@ -94,8 +94,8 @@
             </nav>
             <div class="sidebar-summary">
                 <small>Disponible</small>
-                <strong>@cop($situacion['dinero_disponible_real_centavos'] ?? 0)</strong>
-                <span>Después de compromisos</span>
+                <strong>@cop($disponibleShell ?? $situacion['dinero_disponible_real_centavos'] ?? 0)</strong>
+                <span>Libre hoy</span>
             </div>
         </aside>
     @endauth
@@ -115,6 +115,12 @@
             </div>
         </div>
         <div class="app-header__utils d-flex align-items-center flex-shrink-0 gap-2">
+            @auth
+                <a class="header-disponible d-xl-none" href="{{ route('app.situacion') }}" title="Disponible libre hoy">
+                    <small>Disp.</small>
+                    <strong>@cop($disponibleShell ?? 0)</strong>
+                </a>
+            @endauth
             @yield('header-utils')
             @if (!empty($actionUrl))
                 <a class="add-button" href="{{ $actionUrl }}" aria-label="{{ $actionLabel ?? 'Nuevo' }}">
@@ -146,7 +152,7 @@
         <nav class="bottom-nav" aria-label="Navegación móvil">
             <a class="{{ request()->routeIs('app.situacion') ? 'active' : '' }}" href="{{ route('app.situacion') }}">
                 <span class="nav-icon">@include('layouts.partials.icon', ['name' => 'house', 'class' => 'ui-icon'])</span>
-                <span>Dashboard</span>
+                <span>Situación</span>
             </a>
             <a class="{{ request()->routeIs('app.pagos.*') ? 'active' : '' }}" href="{{ route('app.pagos.index') }}">
                 <span class="nav-icon">@include('layouts.partials.icon', ['name' => 'list', 'class' => 'ui-icon'])</span>
@@ -195,7 +201,7 @@
             <div class="offcanvas-body">
                 <p class="eyebrow mb-2">Tesorería</p>
                 <a href="{{ route('app.cuentas.index') }}">Cuentas</a>
-                <a href="{{ route('app.pagos.index') }}">Transferencias y pagos</a>
+                <a href="{{ route('app.pagos.index') }}">Movimientos</a>
                 <p class="eyebrow mb-2 mt-3">Deudas</p>
                 <a href="{{ route('app.deudas.index') }}">Créditos y deudas</a>
                 <a href="{{ route('app.tarjetas.index') }}">Tarjetas</a>
@@ -207,6 +213,7 @@
         </div>
     @endauth
     @include('layouts.partials.vendor-scripts')
+    @stack('scripts')
 </body>
 
 </html>

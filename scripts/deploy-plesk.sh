@@ -73,15 +73,24 @@ fi
 echo "==> PHP_BIN=$PHP_BIN"
 "$PHP_BIN" -v | head -n 1
 
+# En Plesk, `composer` suele ir con shebang del PHP del OS (a menudo 5.x/7.x).
+# Siempre invocarlo con el mismo PHP_BIN que artisan (8.1+).
 COMPOSER_BIN="${COMPOSER_BIN:-composer}"
+COMPOSER_PATH=""
+if [[ -x "$COMPOSER_BIN" ]]; then
+  COMPOSER_PATH="$COMPOSER_BIN"
+elif command -v "$COMPOSER_BIN" >/dev/null 2>&1; then
+  COMPOSER_PATH="$(command -v "$COMPOSER_BIN")"
+fi
 
-if command -v "$COMPOSER_BIN" >/dev/null 2>&1; then
-  echo "==> composer install --no-dev"
-  "$COMPOSER_BIN" install --no-dev --optimize-autoloader --no-interaction
+if [[ -n "$COMPOSER_PATH" ]]; then
+  echo "==> composer install --no-dev (via $PHP_BIN $COMPOSER_PATH)"
+  "$PHP_BIN" "$COMPOSER_PATH" install --no-dev --optimize-autoloader --no-interaction
 elif [[ -d vendor ]]; then
   echo "==> composer no disponible; se usa vendor/ empaquetado"
 else
   echo "ERROR: no hay composer ni carpeta vendor/."
+  echo "Empaqueta en local con scripts/empaquetar-release.sh (incluye vendor) o instala composer para PHP 8+."
   exit 1
 fi
 

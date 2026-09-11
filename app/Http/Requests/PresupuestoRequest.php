@@ -29,6 +29,14 @@ class PresupuestoRequest extends FormRequest
                 'integer',
                 Rule::exists('categorias', 'id')->where('usuario_id', $this->user()->id)->where('tipo', 'gasto'),
             ],
+            'idempotency_key' => ['required', 'string', 'max:64', 'regex:/^[A-Za-z0-9_-]+$/'],
+        ];
+    }
+
+    protected function mensajesExtra(): array
+    {
+        return [
+            'idempotency_key.required' => 'Recarga el formulario e intenta de nuevo.',
         ];
     }
 }

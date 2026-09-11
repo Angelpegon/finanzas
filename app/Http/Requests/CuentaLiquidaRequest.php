@@ -3,6 +3,7 @@
 namespace App\Http\Requests;
 
 use App\Http\Requests\Concerns\MensajesFormulario;
+use App\Support\CuentasOperativas;
 use Illuminate\Foundation\Http\FormRequest;
 
 class CuentaLiquidaRequest extends FormRequest
@@ -16,17 +17,24 @@ class CuentaLiquidaRequest extends FormRequest
 
     protected function camposMoneda(): array
     {
-        return ['saldo_inicial'];
+        return $this->isMethod('post') ? ['saldo_inicial'] : [];
     }
 
     public function rules(): array
     {
-        return [
+        $tipos = array_keys(CuentasOperativas::etiquetasTipo());
+
+        $rules = [
             'nombre' => ['required', 'string', 'max:120'],
-            'tipo' => ['required', 'in:bancaria,ahorros,corriente,efectivo,billetera,otra'],
+            'tipo' => ['required', 'in:'.implode(',', $tipos)],
             'institucion' => ['nullable', 'string', 'max:120'],
             'numero_cuenta_enmascarado' => ['nullable', 'string', 'max:32', 'regex:/^[*0-9 -]+$/'],
-            'saldo_inicial' => ['nullable', 'numeric', 'min:0'],
         ];
+
+        if ($this->isMethod('post')) {
+            $rules['saldo_inicial'] = ['nullable', 'numeric', 'min:0'];
+        }
+
+        return $rules;
     }
 }

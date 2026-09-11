@@ -1,16 +1,24 @@
 @extends('layouts.app', [
     'title' => 'Registrar gasto',
     'heading' => '¿En qué gastaste?',
-    'subtitle' => 'Un gasto real descuenta tu cuenta; uno proyectado solo ayuda a planear.',
-    'backUrl' => route('app.situacion'),
-    'backLabel' => 'Volver al resumen',
+    'subtitle' => 'Gasto real descuenta el saldo. Recurrente proyecta; puedes registrar también el de esta fecha.',
+    'backUrl' => route('app.gastos.index'),
+    'backLabel' => 'Volver a gastos',
 ])
 @section('content')
 <div class="capture-flow">
-    <p class="capture-hint"><strong>Gasto real</strong> mueve el libro hoy. Activa “proyectado” si solo quieres anticiparlo en el plan.</p>
+    @if($cuentas->isEmpty())
+        <div class="alert alert-light empty-state">
+            Necesitas una cuenta operativa antes de registrar gastos.
+            <a href="{{ route('app.cuentas.create') }}">Crear cuenta</a>.
+        </div>
+    @else
+    <p class="capture-hint"><strong>Gasto real</strong> descuenta tu cuenta. Activa <strong>recurrente</strong> solo si quieres proyectarlo hacia adelante.</p>
     @include('layouts.partials.form-errors')
-    <form method="POST" action="{{ route('app.gastos.store') }}" class="dash-card form-panel" novalidate>
+    <form method="POST" action="{{ route('app.gastos.store') }}" class="dash-card form-panel" novalidate data-recurrente-form>
         @csrf
+        <input type="hidden" name="idempotency_key" value="{{ old('idempotency_key', $idempotencyKey) }}">
+
         <div class="money-hero">
             <label class="form-label" for="monto">Monto en pesos</label>
             <input id="monto" name="monto" type="text" inputmode="decimal" data-miles value="{{ old('monto') }}" class="form-control form-control-lg @error('monto') is-invalid @enderror" placeholder="0" autocomplete="off" required>
@@ -66,23 +74,34 @@
         <section class="form-section">
             <div class="form-section__head">
                 <p class="form-section__eyebrow">Plan</p>
-                <h2 class="form-section__title">¿Se repite o es proyección?</h2>
-            </div>
-            <div>
-                <label class="form-label" for="periodicidad">Periodicidad</label>
-                <select id="periodicidad" name="periodicidad" class="form-select form-select-lg @error('periodicidad') is-invalid @enderror" required>
-                    @foreach(['unico'=>'Único','diario'=>'Diario','semanal'=>'Semanal','quincenal'=>'Quincenal','mensual'=>'Mensual','anual'=>'Anual'] as $valor => $texto)
-                        <option value="{{ $valor }}" @selected(old('periodicidad', 'unico') === $valor)>{{ $texto }}</option>
-                    @endforeach
-                </select>
-                @include('layouts.partials.field-error', ['name' => 'periodicidad'])
+                <h2 class="form-section__title">¿Se repite?</h2>
             </div>
             <div class="form-switch-card">
                 <div class="form-check form-switch">
-                    <input id="proyectado" name="proyectado" value="1" type="checkbox" class="form-check-input" @checked(old('proyectado'))>
-                    <label for="proyectado" class="form-check-label">Es un gasto proyectado</label>
+                    <input id="recurrente" name="recurrente" value="1" type="checkbox" class="form-check-input" data-recurrente-toggle @checked(old('recurrente'))>
+                    <label for="recurrente" class="form-check-label">Es un gasto recurrente</label>
                 </div>
-                <small class="text-secondary">No afecta saldos ni movimientos reales.</small>
+                <small class="text-secondary">Crea una proyección. Puedes registrar también el gasto de esta fecha.</small>
+            </div>
+
+            <div class="mt-3" data-recurrente-fields @if(! old('recurrente')) hidden @endif>
+                <div>
+                    <label class="form-label" for="periodicidad">Periodicidad</label>
+                    <select id="periodicidad" name="periodicidad" class="form-select form-select-lg @error('periodicidad') is-invalid @enderror" data-recurrente-periodicidad>
+                        <option value="">Selecciona</option>
+                        @foreach(['diario'=>'Diario','semanal'=>'Semanal','quincenal'=>'Quincenal','mensual'=>'Mensual','anual'=>'Anual'] as $valor => $texto)
+                            <option value="{{ $valor }}" @selected(old('periodicidad', 'mensual') === $valor)>{{ $texto }}</option>
+                        @endforeach
+                    </select>
+                    @include('layouts.partials.field-error', ['name' => 'periodicidad'])
+                </div>
+                <div class="form-switch-card mt-3">
+                    <div class="form-check form-switch">
+                        <input id="ejecutado" name="ejecutado" value="1" type="checkbox" class="form-check-input" @checked(old('ejecutado', '1') == '1')>
+                        <label for="ejecutado" class="form-check-label">También registrar el gasto de esta fecha</label>
+                    </div>
+                    <small class="text-secondary">Si lo desmarcas, solo queda la proyección (sin mover saldo).</small>
+                </div>
             </div>
         </section>
 
@@ -90,5 +109,6 @@
             <button class="btn btn-primary btn-lg w-100" type="submit">Guardar gasto</button>
         </div>
     </form>
+    @endif
 </div>
 @endsection

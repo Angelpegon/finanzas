@@ -14,7 +14,7 @@ class CuentaLiquidaCicloTest extends TestCase
 {
     use CreaUsuarioConCatalogo;
 
-    public function test_archivar_y_restaurar_no_tocan_el_libro(): void
+    public function test_archivar_sin_saldo_y_restaurar(): void
     {
         $user = $this->usuarioConCatalogo();
         $cuenta = CuentaLiquida::withoutGlobalScopes()->where('usuario_id', $user->id)->firstOrFail();
@@ -31,13 +31,53 @@ class CuentaLiquidaCicloTest extends TestCase
         $this->assertSame('activa', $cuenta->estado);
     }
 
+    public function test_archivar_con_saldo_exige_transferencia(): void
+    {
+        $user = $this->usuarioConCatalogo();
+        $origen = CuentaLiquida::withoutGlobalScopes()->where('usuario_id', $user->id)->firstOrFail();
+        $destino = app(CuentaLiquidaService::class)->crear($user->id, [
+            'nombre' => 'Destino',
+            'tipo' => 'ahorros',
+            'saldo_inicial' => 0,
+        ]);
+        app(TesoreriaService::class)->registrar(
+            $user->id, TipoHechoTesoreria::Apertura, now()->toDateString(), 90_000_00, $origen->id
+        );
+
+        $this->expectException(\InvalidArgumentException::class);
+        app(CuentaLiquidaService::class)->archivar($user->id, $origen);
+    }
+
+    public function test_archivar_con_saldo_transfiere_y_deja_cero(): void
+    {
+        $user = $this->usuarioConCatalogo();
+        $origen = CuentaLiquida::withoutGlobalScopes()->where('usuario_id', $user->id)->firstOrFail();
+        $destino = app(CuentaLiquidaService::class)->crear($user->id, [
+            'nombre' => 'Destino',
+            'tipo' => 'ahorros',
+            'saldo_inicial' => 0,
+        ]);
+        app(TesoreriaService::class)->registrar(
+            $user->id, TipoHechoTesoreria::Apertura, now()->toDateString(), 90_000_00, $origen->id
+        );
+        $saldo = $origen->fresh()->saldoCentavos();
+
+        app(CuentaLiquidaService::class)->archivar($user->id, $origen, $destino->id);
+
+        $origen->refresh();
+        $destino->refresh();
+        $this->assertSame(0, $origen->saldoCentavos());
+        $this->assertSame('inactiva', $origen->estado);
+        $this->assertSame($saldo, $destino->saldoCentavos());
+    }
+
     public function test_cancelar_con_transferencia_deja_origen_en_cero(): void
     {
         $user = $this->usuarioConCatalogo();
         $origen = CuentaLiquida::withoutGlobalScopes()->where('usuario_id', $user->id)->firstOrFail();
         $destino = app(CuentaLiquidaService::class)->crear($user->id, [
             'nombre' => 'Destino',
-            'tipo' => 'banco',
+            'tipo' => 'ahorros',
             'saldo_inicial' => 0,
         ]);
         app(TesoreriaService::class)->registrar(

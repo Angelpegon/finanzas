@@ -52,6 +52,8 @@ class ContabilizacionService
             ]);
             $this->persistirMovimientos($usuarioId, $asiento->id, $movimientos);
 
+            SituacionFinancieraService::olvidarResumenShell($usuarioId);
+
             return $asiento->load('movimientos');
         });
     }
@@ -120,6 +122,8 @@ class ContabilizacionService
                     app(\App\Services\MetaAhorroService::class)->sincronizarProgreso($usuarioId, (int) $hecho->meta_ahorro_id);
                 }
             }
+
+            SituacionFinancieraService::olvidarResumenShell($usuarioId);
 
             return $asiento->load('movimientos');
         });
