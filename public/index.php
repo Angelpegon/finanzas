@@ -4,6 +4,7 @@ use Illuminate\Contracts\Http\Kernel;
 use Illuminate\Http\Request;
 
 define('LARAVEL_START', microtime(true));
+$GLOBALS['__perf_marks'] = ['A_request_start' => LARAVEL_START];
 
 /*
 |--------------------------------------------------------------------------
@@ -32,6 +33,7 @@ if (file_exists($maintenance = __DIR__.'/../storage/framework/maintenance.php'))
 */
 
 require __DIR__.'/../vendor/autoload.php';
+$GLOBALS['__perf_marks']['A_autoload_done'] = microtime(true);
 
 /*
 |--------------------------------------------------------------------------
@@ -45,11 +47,16 @@ require __DIR__.'/../vendor/autoload.php';
 */
 
 $app = require_once __DIR__.'/../bootstrap/app.php';
+$GLOBALS['__perf_marks']['A_app_created'] = microtime(true);
 
 $kernel = $app->make(Kernel::class);
+$GLOBALS['__perf_marks']['A_kernel_resolved'] = microtime(true);
 
-$response = $kernel->handle(
-    $request = Request::capture()
-)->send();
+$request = Request::capture();
+$GLOBALS['__perf_marks']['A_request_captured'] = microtime(true);
+
+$response = $kernel->handle($request);
+$GLOBALS['__perf_marks']['A_kernel_handled'] = microtime(true);
+$response->send();
 
 $kernel->terminate($request, $response);
