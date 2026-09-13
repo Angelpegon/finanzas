@@ -1,4 +1,6 @@
 /.phpunit.cache
+/.phpunit.result.cache
+.phpunit.result.cache
 /node_modules
 /public/build
 /public/hot
@@ -17,6 +19,14 @@ yarn-error.log
 /.idea
 /.vscode
 /graphify-out
+.DS_Store
+**/.DS_Store
 *.tar.gz
+*.zip
 finanzas-release.tar.gz
 /public/diag-*.php
+/public/diag*.php
+/public/perf*.php
+/public/test.php
+/test.md
+/Archivo*.zip

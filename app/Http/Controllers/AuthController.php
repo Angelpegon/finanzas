@@ -7,7 +7,6 @@ use App\Http\Requests\LoginRequest;
 use App\Http\Requests\RegisterRequest;
 use App\Models\User;
 use App\Services\SeguridadService;
-use App\Support\PerfProbe;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\RateLimiter;
@@ -19,11 +18,7 @@ class AuthController extends Controller
 
     public function loginForm(): View
     {
-        PerfProbe::mark('F_controller_enter');
-        $view = view('auth.login');
-        PerfProbe::mark('F_controller_exit');
-
-        return $view;
+        return view('auth.login');
     }
 
     public function login(LoginRequest $request): RedirectResponse

@@ -41,28 +41,5 @@
             window.addEventListener('load', hide);
         }
         setTimeout(hide, MAX_MS);
-        @if (!empty($perfTrace ?? null))
-        function reportPerf() {
-            var nav = performance.getEntriesByType && performance.getEntriesByType('navigation')[0];
-            var data = {
-                ttfb_ms: nav ? Math.round(nav.responseStart) : null,
-                dcl_ms: nav ? Math.round(nav.domContentLoadedEventEnd) : null,
-                load_ms: nav ? Math.round(nav.loadEventEnd) : Math.round(performance.now()),
-                splash_ms: Date.now() - start,
-                transfer_size: nav && nav.transferSize ? nav.transferSize : null,
-                nextHop: nav && nav.nextHopProtocol ? nav.nextHopProtocol : null
-            };
-            console.info('[PERFORMANCE][browser]', data);
-            var elHint = document.createElement('meta');
-            elHint.name = 'perf-browser';
-            elHint.content = JSON.stringify(data);
-            document.head.appendChild(elHint);
-        }
-        if (document.readyState === 'complete') {
-            reportPerf();
-        } else {
-            window.addEventListener('load', reportPerf);
-        }
-        @endif
     })();
 </script>

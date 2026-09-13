@@ -4,16 +4,13 @@ namespace App\Http;
 
 use App\Http\Middleware\Authenticate;
 use App\Http\Middleware\EncryptCookies;
-use App\Http\Middleware\PerfStamp;
 use App\Http\Middleware\PreventRequestsDuringMaintenance;
-use App\Http\Middleware\RecordPerformance;
 use App\Http\Middleware\RedirectIfAuthenticated;
-use App\Http\Middleware\TimedStartSession;
+use App\Http\Middleware\SecurityHeaders;
 use App\Http\Middleware\TrimStrings;
 use App\Http\Middleware\TrustProxies;
 use App\Http\Middleware\ValidateSignature;
 use App\Http\Middleware\VerifyCsrfToken;
-use App\Support\PerfProbe;
 use Illuminate\Auth\Middleware\AuthenticateWithBasicAuth;
 use Illuminate\Auth\Middleware\Authorize;
 use Illuminate\Auth\Middleware\EnsureEmailIsVerified;
@@ -28,12 +25,12 @@ use Illuminate\Http\Middleware\SetCacheHeaders;
 use Illuminate\Routing\Middleware\SubstituteBindings;
 use Illuminate\Routing\Middleware\ThrottleRequests;
 use Illuminate\Session\Middleware\AuthenticateSession;
+use Illuminate\Session\Middleware\StartSession;
 use Illuminate\View\Middleware\ShareErrorsFromSession;
 
 class Kernel extends HttpKernel
 {
     protected $middleware = [
-        RecordPerformance::class, // DIAGNÓSTICO TEMPORAL
         TrustProxies::class,
         \App\Http\Middleware\StripUrlPrefix::class,
         HandleCors::class,
@@ -42,15 +39,14 @@ class Kernel extends HttpKernel
         TrimStrings::class,
         ConvertEmptyStringsToNull::class,
         FrameGuard::class,
-        PerfStamp::class.':B_global_done', // DIAGNÓSTICO TEMPORAL
+        SecurityHeaders::class,
     ];
 
     protected $middlewareGroups = [
         'web' => [
-            PerfStamp::class.':C_web_enter', // DIAGNÓSTICO TEMPORAL
             EncryptCookies::class,
             AddQueuedCookiesToResponse::class,
-            TimedStartSession::class, // DIAGNÓSTICO TEMPORAL (reemplaza StartSession)
+            StartSession::class,
             ShareErrorsFromSession::class,
             VerifyCsrfToken::class,
             SubstituteBindings::class,
@@ -74,16 +70,4 @@ class Kernel extends HttpKernel
         'throttle' => ThrottleRequests::class,
         'verified' => EnsureEmailIsVerified::class,
     ];
-
-    /** DIAGNÓSTICO TEMPORAL: mide el boot de providers (suele ser el tramo frío). */
-    public function bootstrap(): void
-    {
-        $start = microtime(true);
-        $GLOBALS['__perf_marks']['A_providers_boot_start'] = $start;
-        PerfProbe::mark('A_providers_boot_start');
-        parent::bootstrap();
-        $end = microtime(true);
-        $GLOBALS['__perf_marks']['A_providers_boot_end'] = $end;
-        PerfProbe::mark('A_providers_boot_end');
-    }
 }

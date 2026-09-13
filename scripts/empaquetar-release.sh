@@ -27,9 +27,14 @@ tar -czf "$OUT" \
   --exclude='.env.*' \
   --exclude='node_modules' \
   --exclude='tests' \
+  --exclude='.phpunit.cache' \
   --exclude='.phpunit.result.cache' \
   --exclude='.cursor' \
+  --exclude='.DS_Store' \
   --exclude='*.tar.gz' \
+  --exclude='*.zip' \
+  --exclude='Archivo*.zip' \
+  --exclude='test.md' \
   --exclude='bootstrap/cache/*.php' \
   --exclude='storage/logs/*' \
   --exclude='storage/framework/cache/data/*' \
@@ -37,6 +42,9 @@ tar -czf "$OUT" \
   --exclude='storage/framework/views/*' \
   --exclude='public/diag-*.php' \
   --exclude='public/diag*.php' \
+  --exclude='public/perf*.php' \
+  --exclude='public/test.php' \
+  --exclude='public/hot' \
   \
   app artisan bootstrap config database docs lang public resources routes \
   scripts storage \
