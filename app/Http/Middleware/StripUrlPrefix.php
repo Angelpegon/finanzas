@@ -16,6 +16,9 @@ use Symfony\Component\HttpFoundation\Response;
  *
  * Forzamos SCRIPT_NAME={prefix}/index.php para que la base sea /finanzas
  * y pathInfo quede /login (fullUrl conserva el prefijo).
+ *
+ * /finanzas y /finanzas/ a veces no resuelven a pathInfo "/" (405 Method Not
+ * Allowed). Se redirige a situacion/login antes del router.
  */
 class StripUrlPrefix
 {
@@ -28,33 +31,26 @@ class StripUrlPrefix
 
         $uri = (string) $request->server->get('REQUEST_URI', '');
         $path = (string) (parse_url($uri, PHP_URL_PATH) ?: '');
-        $query = parse_url($uri, PHP_URL_QUERY);
 
         if ($path !== $prefix && $path !== $prefix.'/' && ! str_starts_with($path, $prefix.'/')) {
             return $next($request);
         }
 
+        // Raíz de la app bajo subpath: no confiar en el router/pathInfo de Apache.
+        // (Auth aún no tiene sesión aquí; login redirige a situacion si ya hay cookie.)
+        if ($path === $prefix || $path === $prefix.'/') {
+            return redirect()->route('login');
+        }
+
         $server = $request->server->all();
-        $changed = false;
-
-        // /finanzas (sin slash) no alinea con base /finanzas/index.php en Symfony.
-        if ($path === $prefix) {
-            $server['REQUEST_URI'] = $prefix.'/'.($query !== null && $query !== '' ? '?'.$query : '');
-            $changed = true;
-        }
-
-        // Aunque SCRIPT_NAME ya tenga /finanzas/..., si incluye /public el pathInfo falla.
         $desiredScript = $prefix.'/index.php';
-        if (($server['SCRIPT_NAME'] ?? '') !== $desiredScript) {
-            $server['SCRIPT_NAME'] = $desiredScript;
-            $server['PHP_SELF'] = $desiredScript;
-            $server['SCRIPT_FILENAME'] = public_path('index.php');
-            $changed = true;
-        }
-
-        if (! $changed) {
+        if (($server['SCRIPT_NAME'] ?? '') === $desiredScript) {
             return $next($request);
         }
+
+        $server['SCRIPT_NAME'] = $desiredScript;
+        $server['PHP_SELF'] = $desiredScript;
+        $server['SCRIPT_FILENAME'] = public_path('index.php');
 
         $request = $request->duplicate(
             null,

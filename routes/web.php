@@ -1,8 +1,8 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
-use Illuminate\Support\Facades\Auth;
 use App\Http\Controllers\PwaAssetController;
+use App\Http\Controllers\HomeController;
 use App\Http\Controllers\SituacionController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\CuentaLiquidaController;
@@ -20,7 +20,9 @@ Route::get('/manifest.json', [PwaAssetController::class, 'manifest']);
 Route::get('/sw.js', [PwaAssetController::class, 'serviceWorker']);
 Route::get('/offline.html', [PwaAssetController::class, 'offline']);
 
-Route::get('/', fn () => redirect()->route(Auth::check() ? 'app.situacion' : 'login'));
+// Route::get incluye HEAD (curl -I, probes). POST por si DirectoryIndex manda raro.
+Route::get('/', HomeController::class)->name('home');
+Route::post('/', HomeController::class);
 Route::middleware('guest')->group(function (): void {
     Route::get('/login', [AuthController::class, 'loginForm'])->name('login');
     Route::post('/login', [AuthController::class, 'login'])->name('auth.login');

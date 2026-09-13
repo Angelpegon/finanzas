@@ -9,10 +9,12 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::table('tarjetas_credito', function (Blueprint $table): void {
-            $table->decimal('tasa_compras_mensual', 8, 4)->default(0)->after('ea_porcentaje');
-            $table->decimal('tasa_avances_mensual', 8, 4)->default(0)->after('tasa_compras_mensual');
-        });
+        if (! Schema::hasColumn('tarjetas_credito', 'tasa_compras_mensual')) {
+            Schema::table('tarjetas_credito', function (Blueprint $table): void {
+                $table->decimal('tasa_compras_mensual', 8, 4)->default(0)->after('ea_porcentaje');
+                $table->decimal('tasa_avances_mensual', 8, 4)->default(0)->after('tasa_compras_mensual');
+            });
+        }
 
         $tarjetas = DB::table('tarjetas_credito')->select('id', 'ea_porcentaje')->get();
         foreach ($tarjetas as $tarjeta) {
@@ -24,23 +26,37 @@ return new class extends Migration
             ]);
         }
 
-        Schema::table('compras_tarjeta', function (Blueprint $table): void {
-            $table->string('tipo', 20)->default('compra')->after('tarjeta_credito_id');
-            $table->foreignId('cuenta_liquida_id')
-                ->nullable()
-                ->after('categoria_id')
-                ->constrained('cuentas_liquidas')
-                ->nullOnDelete();
-            $table->boolean('anulada')->default(false)->after('descripcion');
-        });
+        if (! Schema::hasColumn('compras_tarjeta', 'tipo')) {
+            Schema::table('compras_tarjeta', function (Blueprint $table): void {
+                $table->string('tipo', 20)->default('compra')->after('tarjeta_credito_id');
+            });
+        }
 
-        Schema::table('pagos', function (Blueprint $table): void {
-            $table->foreignId('cuota_tarjeta_id')
-                ->nullable()
-                ->after('tarjeta_credito_id')
-                ->constrained('cuotas_tarjeta')
-                ->nullOnDelete();
-        });
+        if (! Schema::hasColumn('compras_tarjeta', 'cuenta_liquida_id')) {
+            Schema::table('compras_tarjeta', function (Blueprint $table): void {
+                $table->foreignId('cuenta_liquida_id')
+                    ->nullable()
+                    ->after('categoria_id')
+                    ->constrained('cuentas_liquidas')
+                    ->nullOnDelete();
+            });
+        }
+
+        if (! Schema::hasColumn('compras_tarjeta', 'anulada')) {
+            Schema::table('compras_tarjeta', function (Blueprint $table): void {
+                $table->boolean('anulada')->default(false)->after('descripcion');
+            });
+        }
+
+        if (! Schema::hasColumn('pagos', 'cuota_tarjeta_id')) {
+            Schema::table('pagos', function (Blueprint $table): void {
+                $table->foreignId('cuota_tarjeta_id')
+                    ->nullable()
+                    ->after('tarjeta_credito_id')
+                    ->constrained('cuotas_tarjeta')
+                    ->nullOnDelete();
+            });
+        }
     }
 
     public function down(): void

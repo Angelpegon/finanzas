@@ -145,6 +145,7 @@ El tarball incluye `vendor` y `public/build`; **no** incluye `.env`.
 | `open_basedir` / `is_dir()` con path `/Users/...` | Subiste `bootstrap/cache/config.php` cacheado en tu Mac. Borra `bootstrap/cache/*.php` en el servidor y corre `php artisan config:cache` ahí (o `bash scripts/deploy-plesk.sh`) |
 | `open_basedir` genérico sin path local | `storage/` o `bootstrap/cache` fuera del docroot permitido; o Document Root mal |
 | `404 \| NOT FOUND` de Laravel en `/finanzas/` | `APP_URL` sin el path (`https://ingeer.co` en vez de `https://ingeer.co/finanzas`), o `route:cache`/`config:cache` viejo. Corrige `.env`, borra `bootstrap/cache/*.php` y regenera |
+| `405` en `https://…/finanzas/` (login en `/finanzas/login` sí va) | Document Root en la raíz del repo + DirectoryIndex. El `.htaccess` debe reescribir `^$` → `public/index.php`. Sube `.htaccess` + `HomeController` y `php artisan route:cache` |
 | Login redirige fuera de `/finanzas` | Middleware antiguo que reescribía `REQUEST_URI` sin ajustar `SCRIPT_NAME` (rompe `url.intended`). Usa la versión actual de `StripUrlPrefix` |
 | CSS/JS 404 bajo `/finanzas/build` | nginx sirve estáticos desde `httpdocs/finanzas/build` (no existe); deben resolverse vía rewrite a `finanzas/public/`. En Apache el `.htaccess` del proyecto lo hace; en nginx FPM añade `try_files` |
 
