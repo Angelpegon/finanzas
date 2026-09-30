@@ -95,6 +95,8 @@ class PagoController extends Controller
             ->values()
             ->all();
 
+        app(\App\Services\ExtractoTarjetaService::class)->cerrarExtractosVencidos((int) Auth::id());
+
         $prestamos = Prestamo::query()
             ->whereIn('estado', ['activa', 'vigente'])
             ->with(['cuotas' => fn ($q) => $q->where('pagada', false)->orderBy('numero')])
@@ -103,26 +105,18 @@ class PagoController extends Controller
 
         $tarjetas = TarjetaCredito::query()
             ->where('activa', true)
-            ->whereHas('cuotasProgramadas', fn ($q) => $q->where('pagada', false))
+            ->with('cicloAbierto')
             ->orderBy('nombre')
             ->get()
+            ->filter(fn (TarjetaCredito $tarjeta) => $tarjeta->cicloAbierto && $tarjeta->pago_total_centavos > 0)
             ->map(function (TarjetaCredito $tarjeta) {
-                $proxima = $tarjeta->cuotasProgramadas()
-                    ->where('pagada', false)
-                    ->orderBy('fecha_vencimiento')
-                    ->orderBy('numero')
-                    ->orderBy('id')
-                    ->first();
-                $minimo = $proxima
-                    ? (int) $proxima->capital_centavos + (int) $proxima->interes_centavos
-                    : 0;
-
                 return (object) [
                     'id' => (int) $tarjeta->id,
                     'nombre' => (string) $tarjeta->nombre,
                     'entidad' => $tarjeta->entidad,
-                    'minimo_centavos' => $minimo,
-                    'proxima_numero' => $proxima ? (int) $proxima->numero : null,
+                    'minimo_centavos' => $tarjeta->pago_minimo_centavos,
+                    'total_centavos' => $tarjeta->pago_total_centavos,
+                    'fecha_pago' => $tarjeta->cicloAbierto?->fecha_pago?->format('d/m/Y'),
                 ];
             })
             ->values();
@@ -182,7 +176,7 @@ class PagoController extends Controller
                     $d['fecha'],
                     Dinero::pesosACentavos($d['monto'])
                 );
-                $mensaje = 'Pago de tarjeta registrado (cuota y abono extra si aplica).';
+                $mensaje = 'Pago del extracto registrado.';
             } else {
                 $pagos->registrar(
                     $usuarioId,

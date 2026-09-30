@@ -12,6 +12,7 @@ use App\Models\Pago;
 use App\Models\TarjetaCredito;
 use App\Models\User;
 use App\Services\TesoreriaService;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Str;
 use Tests\CreaUsuarioConCatalogo;
 use Tests\TestCase;
@@ -41,6 +42,7 @@ class TarjetasFlujoTest extends TestCase
             'tasa_avances_mensual' => '3.5',
             'dia_corte' => '10',
             'dia_pago' => '25',
+            'porcentaje_abono_capital_minimo' => '5',
             'idempotency_key' => (string) Str::uuid(),
         ], $extra);
     }
@@ -48,6 +50,7 @@ class TarjetasFlujoTest extends TestCase
     public function test_crear_compra_pago_y_corregir(): void
     {
         $this->withoutVite();
+        $this->travelTo(Carbon::parse('2026-03-02'));
         $usuario = $this->usuarioConCatalogo();
         $cuenta = CuentaLiquida::where('usuario_id', $usuario->id)->firstOrFail();
         $this->fondear($usuario, $cuenta);
@@ -82,11 +85,11 @@ class TarjetasFlujoTest extends TestCase
         $this->assertSame(300_000_00, $tarjeta->fresh()->saldo_actual_centavos);
 
         $cuota = $compra->cuotasProgramadas()->orderBy('numero')->firstOrFail();
+        $this->travelTo(Carbon::parse('2026-03-12'));
         $pagoResponse = $this->actingAs($usuario)
             ->from(route('app.tarjetas.index'))
             ->post(route('app.tarjetas.pagos.store'), [
                 'tarjeta_credito_id' => $tarjeta->id,
-                'cuota_tarjeta_id' => $cuota->id,
                 'cuenta_liquida_id' => $cuenta->id,
                 'fecha' => now()->toDateString(),
                 'idempotency_key' => (string) Str::uuid(),
@@ -95,7 +98,7 @@ class TarjetasFlujoTest extends TestCase
         $pagoResponse->assertRedirect(route('app.tarjetas.index'));
 
         $pago = Pago::where('usuario_id', $usuario->id)->where('tipo', 'tarjeta')->firstOrFail();
-        $this->assertSame((int) $cuota->id, (int) $pago->cuota_tarjeta_id);
+        $this->assertNotNull($pago->ciclo_facturacion_id);
         $this->assertTrue($cuota->fresh()->pagada);
 
         $this->actingAs($usuario)
@@ -240,6 +243,7 @@ class TarjetasFlujoTest extends TestCase
     public function test_avance_una_cuota_si_aplica_interes(): void
     {
         $this->withoutVite();
+        $this->travelTo(\Illuminate\Support\Carbon::parse('2026-03-02'));
         $usuario = $this->usuarioConCatalogo();
         $cuenta = CuentaLiquida::where('usuario_id', $usuario->id)->firstOrFail();
         $this->fondear($usuario, $cuenta);
@@ -255,7 +259,7 @@ class TarjetasFlujoTest extends TestCase
             'tipo' => 'avance',
             'descripcion' => 'Cajero',
             'monto' => '50000',
-            'fecha' => now()->toDateString(),
+            'fecha' => '2026-03-02',
             'cuenta_liquida_id' => $cuenta->id,
             'cuotas' => '1',
             'idempotency_key' => (string) Str::uuid(),
@@ -263,7 +267,13 @@ class TarjetasFlujoTest extends TestCase
 
         $compra = CompraTarjeta::where('tarjeta_credito_id', $tarjeta->id)->firstOrFail();
         $this->assertSame(3.5, (float) $compra->tasa_interes_porcentaje);
-        $this->assertSame((int) round(50_000_00 * 0.035), (int) $compra->cuotasProgramadas()->value('interes_centavos'));
+        $this->assertSame(0, (int) $compra->cuotasProgramadas()->value('interes_centavos'));
+
+        $this->travelTo(\Illuminate\Support\Carbon::parse('2026-03-12'));
+        $this->actingAs($usuario)->get(route('app.tarjetas.index'))->assertOk();
+        $ciclo = \App\Models\CicloFacturacion::where('tarjeta_credito_id', $tarjeta->id)->firstOrFail();
+        $dias = \Illuminate\Support\Carbon::parse('2026-03-02')->diffInDays(\Illuminate\Support\Carbon::parse('2026-03-10'), false);
+        $this->assertSame((int) round(50_000_00 * 0.035 * $dias / 30), (int) $ciclo->interes_rotativo_centavos);
     }
 
     public function test_index_usa_toolbar_como_otras_secciones(): void
@@ -305,6 +315,7 @@ class TarjetasFlujoTest extends TestCase
     public function test_pago_con_abono_extra_desde_ui(): void
     {
         $this->withoutVite();
+        $this->travelTo(Carbon::parse('2026-03-02'));
         $usuario = $this->usuarioConCatalogo();
         $cuenta = CuentaLiquida::where('usuario_id', $usuario->id)->firstOrFail();
         $this->fondear($usuario, $cuenta);
@@ -324,25 +335,33 @@ class TarjetasFlujoTest extends TestCase
         ])->assertRedirect();
 
         $cuotas = CuotaTarjeta::where('tarjeta_credito_id', $tarjeta->id)->orderBy('numero')->get();
-        $proxima = $cuotas->first();
-        $minimo = (int) $proxima->capital_centavos + (int) $proxima->interes_centavos;
-        $extra = intdiv((int) $cuotas->last()->capital_centavos, 2);
+        $capitalUltima = (int) $cuotas->last()->capital_centavos;
+        $this->travelTo(Carbon::parse('2026-03-12'));
 
         $this->actingAs($usuario)
             ->from(route('app.tarjetas.index'))
             ->post(route('app.tarjetas.pagos.store'), [
                 'tarjeta_credito_id' => $tarjeta->id,
-                'cuota_tarjeta_id' => $proxima->id,
                 'cuenta_liquida_id' => $cuenta->id,
-                'monto' => (string) (($minimo + $extra) / 100),
+                'monto' => (string) (((int) $cuotas->first()->capital_centavos + (int) $cuotas->first()->interes_centavos) / 100),
                 'fecha' => now()->toDateString(),
                 'idempotency_key' => (string) Str::uuid(),
             ])
             ->assertSessionHasNoErrors()
             ->assertRedirect(route('app.tarjetas.index'));
 
-        $pago = Pago::where('usuario_id', $usuario->id)->where('tipo', 'tarjeta')->firstOrFail();
-        $this->assertTrue($pago->extraordinario);
         $this->assertSame(2, CuotaTarjeta::where('tarjeta_credito_id', $tarjeta->id)->where('pagada', false)->count());
+        $this->assertSame($capitalUltima, (int) CuotaTarjeta::where('tarjeta_credito_id', $tarjeta->id)->orderByDesc('numero')->value('capital_centavos'));
+
+        $this->actingAs($usuario)
+            ->from(route('app.tarjetas.index'))
+            ->post(route('app.tarjetas.pagos.store'), [
+                'tarjeta_credito_id' => $tarjeta->id,
+                'cuenta_liquida_id' => $cuenta->id,
+                'monto' => '500000',
+                'fecha' => now()->toDateString(),
+                'idempotency_key' => (string) Str::uuid(),
+            ])
+            ->assertSessionHasErrorsIn('pago_tarjeta', ['monto']);
     }
 }

@@ -30,7 +30,7 @@
         @error('password_confirmation')<div class="invalid-feedback">{{ $message }}</div>@enderror
     </div>
     <div class="auth-actions">
-        <button class="btn btn-primary btn-lg w-100" type="submit">Crear cuenta</button>
+        <button class="btn btn-primary btn-lg w-100" type="submit" data-loading-label="Creando cuenta…">Crear cuenta</button>
     </div>
 </form>
 <p class="auth-card__footer">¿Ya tienes cuenta? <a href="{{ route('login') }}">Iniciar sesión</a></p>

@@ -2267,3 +2267,39 @@ input[type="date"].form-control::-webkit-calendar-picker-indicator {
 /* Paginación (Bootstrap 5) en tema oscuro */
 .pagination { --bs-pagination-bg: var(--bg-soft); --bs-pagination-border-color: var(--border); --bs-pagination-color: var(--text); --bs-pagination-hover-bg: var(--bg-elevated); --bs-pagination-hover-color: var(--text); --bs-pagination-hover-border-color: var(--border); --bs-pagination-focus-bg: var(--bg-elevated); --bs-pagination-focus-color: var(--text); --bs-pagination-focus-box-shadow: 0 0 0 .2rem rgb(115 103 240 / 25%); --bs-pagination-active-bg: var(--accent); --bs-pagination-active-border-color: var(--accent); --bs-pagination-disabled-bg: transparent; --bs-pagination-disabled-color: var(--text-muted); --bs-pagination-disabled-border-color: var(--border); margin: 0; }
 .pagination .page-link { border-radius: .65rem; margin: 0 .15rem; }
+
+#nav-progress {
+    position: fixed;
+    top: env(safe-area-inset-top, 0px);
+    left: 0;
+    z-index: 20050;
+    height: 4px;
+    width: 0;
+    pointer-events: none;
+    background: var(--accent, #7367f0);
+    box-shadow: 0 0 12px rgb(115 103 240 / 75%);
+    opacity: 0;
+}
+#nav-progress.is-active {
+    opacity: 1;
+    animation: nav-progress 8s cubic-bezier(.05, .6, .2, 1) forwards;
+}
+@keyframes nav-progress {
+    0% { width: 8%; }
+    30% { width: 45%; }
+    100% { width: 90%; }
+}
+.btn.is-busy { pointer-events: none; }
+.btn.is-busy::after {
+    content: "";
+    display: inline-block;
+    width: .85em;
+    height: .85em;
+    margin-left: .55rem;
+    border: 2px solid currentColor;
+    border-right-color: transparent;
+    border-radius: 50%;
+    vertical-align: -.12em;
+    animation: nav-spin .65s linear infinite;
+}
+@keyframes nav-spin { to { transform: rotate(360deg); } }

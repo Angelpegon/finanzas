@@ -30,15 +30,22 @@ de crear hechos o asientos; las vistas solo muestran el resultado.
 ## Proyecciones y pagos
 
 11. Los movimientos proyectados no crean asientos ni alteran saldos reales.
-12. Un pago de tarjeta reduce pasivo (capital) y liquidez; el interés se gasta
-    en `5200`. La compra ya reconoció el gasto de consumo.
+    Excepción: consultar el calendario, la proyección o la situación cierra
+    los cortes de tarjeta ya vencidos (`ExtractoTarjetaService`). Ese cierre
+    sí causa interés, mora y cuota de manejo en `5200` una sola vez. No
+    persiste cortes futuros.
+12. Un pago de tarjeta reduce el pasivo y la liquidez por el monto pagado.
+    El interés, la mora y la cuota de manejo se causan al corte (débito
+    `5200`, crédito pasivo de la tarjeta), no en el pago. La compra ya
+    reconoció el gasto de consumo por el capital.
 13. Los pagos de préstamos y de tarjetas pueden iniciarse desde Movimientos
     (también desde Deudas / Tarjetas); el dominio siempre usa `PrestamoService`
-    o `TarjetaService`. En ambos, el mínimo es la próxima cuota pendiente y el
-    exceso es abono a capital. Los gastos de consumo diario se registran en
-    Gastos, no en Movimientos. Un envío a un tercero no es transferencia: es un
-    pago genérico (`deuda_personal` / `otra_obligacion`) que reduce liquidez y
-    reconoce gasto.
+    o `TarjetaService`. En préstamo el mínimo es la próxima cuota y el exceso
+    es abono a capital. En tarjeta se paga el extracto abierto: mínimo para
+    no entrar en mora, total para no rotar. Los gastos de consumo diario se
+    registran en Gastos, no en Movimientos. Un envío a un tercero no es
+    transferencia: es un pago genérico (`deuda_personal` / `otra_obligacion`)
+    que reduce liquidez y reconoce gasto.
 14. Un pago genérico exige referencia única por usuario (`unique` en
     `usuario_id + referencia`) y cuenta operativa. La corrección de un pago
     genérico o de una transferencia entre cuentas propias es reverso contable
@@ -46,34 +53,51 @@ de crear hechos o asientos; las vistas solo muestran el resultado.
 15. Una deuda liquidada no genera cuotas ni compromisos futuros.
 16. Los gastos recurrentes, ingresos recurrentes y cuotas futuras se muestran
     como proyección hasta que se registre el hecho real.
-17. El pago de cuota de préstamo o de tarjeta debe cubrir al menos el total de
-    la cuota. Cualquier exceso es abono extraordinario a capital: en préstamo
-    reduce plazo y mantiene la cuota (`AmortizacionFrancesa::plazosConCuotaFija`)
-    en método francés; en lineal o solo interés se recalcula el mismo número de
-    cuotas pendientes con el saldo restante.     En tarjeta el exceso reduce capital de las cuotas futuras desde el final
-    (acorta plazo a nivel tarjeta, puede afectar varias compras) y condona el
-    interés programado de las cuotas eliminadas; el interés de una cuota
-    parcialmente reducida se prorratea. El cronograma futuro se regenera o
-    ajusta (no es UPDATE de asientos); el pago guarda un snapshot del
-    cronograma previo (con id de cuota) para permitir corrección. La corrección
-    solo restaura las cuotas del snapshot; no elimina cuotas de compras
-    registradas después del pago.
+17. El pago de cuota de préstamo debe cubrir al menos el total de la cuota.
+    Cualquier exceso es abono extraordinario a capital: reduce plazo y mantiene
+    la cuota (`AmortizacionFrancesa::plazosConCuotaFija`) en método francés;
+    en lineal o solo interés se recalcula el mismo número de cuotas pendientes
+    con el saldo restante. El cronograma futuro se ajusta (no es UPDATE de
+    asientos); el pago guarda un snapshot para permitir corrección.
+    En tarjeta el pago aplica al extracto abierto, en cascada: mora, interés
+    rotativo, interés de diferido, cargos, capital del diferido exigido este
+    ciclo, capital rotativo. Lo que supere el mínimo reduce capital rotativo.
+    Un monto mayor al saldo del extracto se rechaza: no se adelantan cuotas
+    futuras del diferido ni se condona su interés. El pago guarda snapshot
+    de `abonado_centavos` de esas cuotas. La corrección solo restaura ese
+    snapshot y revierte el asiento del pago; no revierte la causación del
+    corte y solo aplica al último pago de la tarjeta, mientras no exista un
+    corte posterior.
 
 ## Deudas y financiación
 
 18. Una compra financiada conserva valor original, tasa (snapshot al registrar),
     intereses, número de cuotas, capital pagado, cuotas pendientes y saldo
     pendiente. En tarjeta la tasa no se pide en el formulario: compra a 1 cuota
-    (corriente) programa interés 0; compra a 2+ cuotas usa `tasa_compras_mensual`;
-    avance usa siempre `tasa_avances_mensual` (también a 1 cuota). El revolving
-    sobre saldo no pagado al corte queda fuera de fase 1.
+    es corriente (interés 0 en el cronograma interno); compra a 2+ cuotas usa
+    `tasa_compras_mensual` y solo la cuota del mes entra al extracto; avance
+    usa siempre `tasa_avances_mensual` desde el día del retiro, sin periodo de
+    gracia. El saldo corriente no pagado en la fecha límite pierde la gracia y
+    rota: el siguiente corte causa interés corriente (`round(capital *
+    tasa / 100 * días / 30)`, base 30 días) desde la compra o desde el corte
+    anterior. La gracia se conserva solo si este ciclo paga el total y el
+    ciclo previo también quedó cubierto (o es el primero). Si a la fecha
+    límite no se cubrió el mínimo, el siguiente corte suma mora sobre el
+    faltante del mínimo, con `tasa_mora_mensual` o, si está en 0, con la tasa
+    de compras. El mínimo = 100% de intereses, mora, cargos y capital exigido
+    (cuota del diferido y del avance a cuotas de este ciclo, más el avance a
+    una cuota) + `porcentaje_abono_capital_minimo` del capital rotativo
+    (default 5). El pago total suma el capital rotativo completo, sin el
+    tope porcentual, y deja fuera el saldo diferido de meses futuros.
 19. Una compra o avance con tarjeta no puede superar el cupo disponible
     (cupo − saldo del pasivo en el libro), con bloqueo de fila al registrar.
-20. Una cuota pagada no puede pagarse nuevamente; el pago se vincula a una
-    cuota concreta (`pagos.cuota_prestamo_id` o `pagos.cuota_tarjeta_id`).
+20. Una cuota de préstamo pagada no puede pagarse nuevamente; el pago se
+    vincula con `pagos.cuota_prestamo_id`. El pago de tarjeta se vincula al
+    extracto (`pagos.ciclo_facturacion_id`), no a una cuota suelta.
     La corrección de un pago es reverso contable del asiento + reapertura de
-    la cuota; solo aplica al último pago de esa obligación. Una compra/avance
-    de tarjeta sin cuotas pagadas puede anularse (reverso + borrar cuotas).
+    la cuota o del extracto; solo aplica al último pago de esa obligación.
+    Una compra/avance de tarjeta puede anularse solo si ninguna cuota está
+    pagada y ninguna entró a un extracto.
 20b. Un avance en efectivo acredita liquidez operativa y el pasivo de la
     tarjeta; no consume categoría de gasto. La cuenta destino no puede ser
     bolsillo de meta.
@@ -140,13 +164,14 @@ de crear hechos o asientos; las vistas solo muestran el resultado.
 
 ## Calendario (proyección de lectura)
 
-36. El calendario (`CalendarioFinancieroService`) no escribe libro. Muestra:
-    (a) hechos de radar no revertidos (`ingreso`, `gasto`, `aporte_meta`,
-    `retiro_meta`); (b) pagos no revertidos (genéricos, préstamo y tarjeta);
-    (c) cuotas pendientes de préstamo/tarjeta; (d) recurrencias activas;
-    (e) marca informativa de corte de tarjeta (monto 0). No inventa un
-    “límite de pago” aparte de las cuotas. Apertura, cierre y transferencia
-    no entran al radar (no son flujo operativo del día).
+36. El calendario (`CalendarioFinancieroService`) no inventa movimientos.
+    Sí cierra cortes de tarjeta ya vencidos para que el extracto exista
+    (regla 11). Muestra: (a) hechos de radar no revertidos (`ingreso`,
+    `gasto`, `aporte_meta`, `retiro_meta`); (b) pagos no revertidos
+    (genéricos, préstamo y tarjeta); (c) cuotas pendientes de préstamo y el
+    extracto abierto de cada tarjeta en su fecha límite; (d) recurrencias
+    activas; (e) marca informativa de corte de tarjeta (monto 0). Apertura,
+    cierre y transferencia no entran al radar (no son flujo operativo del día).
 37. Tras pagar una cuota, el compromiso proyectado desaparece y el pago real
     aparece como evento `pago`. Tras corregir (reverso), el origen deja de
     contar como real y la cuota puede volver a proyectarse.
@@ -166,10 +191,13 @@ de crear hechos o asientos; las vistas solo muestran el resultado.
     con el calendario vía `RecurrenciaMensual` (`unico` en el mes de creación,
     `anual` monto completo en mes aniversario, cobertura por monto de categoría
     excluyendo reversos). Presupuesto usa el mismo bruto mensual.
-41. El horizonte del mes corriente (Situación / shell) incluye cuotas impagas
-    con vencimiento ≤ fin de mes (arrastre de vencidas). En el forecast
-    multi-mes, ese arrastre solo va en el mes 0; los meses siguientes solo
-    suman cuotas con vencimiento en ese mes.
+41. El horizonte del mes corriente (Situación / shell) incluye cuotas de
+    préstamo impagas con vencimiento ≤ fin de mes (arrastre de vencidas) y
+    el extracto de tarjeta abierto aunque su fecha límite sea anterior. En
+    el forecast multi-mes, ese arrastre solo va en el mes 0; los meses
+    siguientes suman la cuota de diferido aún no facturada con vencimiento
+    en ese mes y la cuota de manejo de cortes futuros, asumiendo que el
+    extracto abierto se paga (no se rota el saldo hacia adelante).
 42. El residual de `/proyecciones` es flujo del mes (ingresos − gastos −
     cuotas − metas) **sin** saldo inicial. El disponible de Situación es
     liquidez libre − cuotas/metas − gastos recurrentes pendientes. No son el
@@ -190,7 +218,8 @@ de crear hechos o asientos; las vistas solo muestran el resultado.
     network-first; bumpear `finanzas-pwa-vN` tras cambios de SW. No cachear
     HTML autenticado.
 
-47. En `TarjetaCredito` la relación de cronograma se llama `cuotasProgramadas`
-    (igual que en `CompraTarjeta`). No debe existir columna scalar `cuotas` en
-    `tarjetas_credito`: sombreaba la relación y producía 500 al acceder
-    `$tarjeta->cuotas->…`.
+47. En `TarjetaCredito` la relación de cronograma interno se llama
+    `cuotasProgramadas` (igual que en `CompraTarjeta`). No debe existir
+    columna scalar `cuotas` en `tarjetas_credito`: sombreaba la relación y
+    producía 500 al acceder `$tarjeta->cuotas->…`. El compromiso de caja es
+    el ciclo con `estado = abierto` (`cicloAbierto`), no la próxima cuota.

@@ -69,6 +69,7 @@ class DeudasFlujoTest extends TestCase
             ->get(route('app.deudas.index'))
             ->assertOk()
             ->assertSee('Crédito prueba')
+            ->assertSee('Total que debes')
             ->assertSee('Registrar pago');
 
         $cuota = $prestamo->cuotas()->where('pagada', false)->orderBy('numero')->firstOrFail();

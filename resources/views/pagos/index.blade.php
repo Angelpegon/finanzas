@@ -170,7 +170,7 @@
                     </div>
                     <p class="small text-secondary mb-3">Los gastos del día a día van en <a
                             href="{{ route('app.gastos.create') }}">Gastos</a>. Las tarjetas se pagan aquí o en <a
-                            href="{{ route('app.tarjetas.index') }}">Tarjetas</a>: mínimo = próxima cuota; el exceso es abono a capital.</p>
+                            href="{{ route('app.tarjetas.index') }}">Tarjetas</a>: el pago cubre el extracto abierto. El mínimo evita la mora; lo que supere el mínimo reduce capital rotativo, sin adelantar cuotas futuras del diferido.</p>
                     @include('layouts.partials.form-errors', ['bag' => 'pago'])
 
                     <div class="money-hero">
@@ -282,19 +282,17 @@
                                         {{ $tarjeta->nombre }}@if ($tarjeta->entidad)
                                             · {{ $tarjeta->entidad }}
                                         @endif
-                                        @if ($tarjeta->proxima_numero)
-                                            — cuota {{ $tarjeta->proxima_numero }} desde @cop($tarjeta->minimo_centavos)
-                                        @endif
+                                        — extracto @if($tarjeta->fecha_pago){{ $tarjeta->fecha_pago }} @endif desde @cop($tarjeta->minimo_centavos)
                                     </option>
                                 @empty
-                                    <option value="" disabled>No hay tarjetas con cuotas pendientes. Gestiona compras en Tarjetas.</option>
+                                    <option value="" disabled>No hay extractos pendientes. Las compras entran al corte.</option>
                                 @endforelse
                             </select>
                             @include('layouts.partials.field-error', [
                                 'name' => 'tarjeta_credito_id',
                                 'bag' => 'pago',
                             ])
-                            <p class="small text-secondary mt-1">Aplica a la próxima cuota pendiente. El exceso es abono a capital (acorta plazo; condona interés de cuotas que desaparecen).</p>
+                            <p class="small text-secondary mt-1">Aplica al extracto abierto. Entre el mínimo y el total reduces capital rotativo. Por encima del total el sistema rechaza el pago: el diferido futuro no se adelanta aquí.</p>
                         </div>
 
                         <div id="campos-tercero" @if ($esObligacion) hidden @endif>

@@ -11,12 +11,33 @@
 @include('layouts.partials.form-errors')
 @include('layouts.partials.form-errors', ['bag' => 'pago_prestamo'])
 
+@php
+    $totalCreditosCentavos = (int) $prestamos->sum(fn ($deuda) => (int) $deuda->saldo_actual_centavos);
+    $totalTarjetasCentavos = (int) $tarjetas->sum(fn ($deuda) => (int) $deuda->saldo_actual_centavos);
+    $totalDeudaCentavos = $totalCreditosCentavos + $totalTarjetasCentavos;
+@endphp
+
 <div class="page-toolbar">
     <a class="btn btn-primary btn-lg" href="{{ route('app.deudas.create') }}">
         @include('layouts.partials.icon', ['name' => 'plus', 'class' => 'ui-icon ui-icon--sm'])
         Nueva deuda
     </a>
 </div>
+
+<article class="account-card mb-3">
+    <div class="account-card__main">
+        <div class="account-card__icon">@include('layouts.partials.icon', ['name' => 'file-invoice', 'class' => 'ui-icon ui-icon--sm'])</div>
+        <div class="account-card__body">
+            <div class="account-card__head">
+                <div class="account-card__title">
+                    <h2>Total que debes</h2>
+                    <small>Créditos @cop($totalCreditosCentavos) · Tarjetas @cop($totalTarjetasCentavos)</small>
+                </div>
+                <strong class="account-card__amount">@cop($totalDeudaCentavos)</strong>
+            </div>
+        </div>
+    </div>
+</article>
 
 <div class="list-block list-block--flush">
 <div class="list-block__head">

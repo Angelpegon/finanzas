@@ -3,15 +3,15 @@
 namespace App\Services;
 
 use App\Models\CuotaPrestamo;
-use App\Models\CuotaTarjeta;
 use App\Models\MetaAhorro;
 use App\Support\AgregadosLibro;
 use App\Support\RecurrenciaMensual;
 use Illuminate\Support\Carbon;
 
 /**
- * Forecast de lectura (no escribe libro). Alineado a calendario en recurrencias
- * (unico/anual/cobertura) y carga cuotas vencidas arrastradas en el mes corriente.
+ * Forecast. Cierra cortes de tarjeta ya vencidos (eso sí postea interés y
+ * cuota de manejo) y no persiste cortes futuros. Recurrencias alineadas al
+ * calendario (unico/anual/cobertura). El mes corriente arrastra cuotas vencidas.
  */
 class ProyeccionService
 {
@@ -100,12 +100,7 @@ class ProyeccionService
             ->get()
             ->sum(fn (CuotaPrestamo $c): int => (int) $c->total_centavos);
 
-        $tarjeta = (int) CuotaTarjeta::withoutGlobalScopes()
-            ->where('usuario_id', $usuarioId)
-            ->where('pagada', false)
-            ->whereDate('fecha_vencimiento', '<=', $limite)
-            ->get()
-            ->sum(fn (CuotaTarjeta $c): int => (int) $c->total_centavos);
+        $tarjeta = app(ExtractoTarjetaService::class)->compromiso($usuarioId, $fin->copy()->startOfMonth(), $fin, true);
 
         return $prestamo + $tarjeta;
     }
@@ -119,12 +114,7 @@ class ProyeccionService
             ->get()
             ->sum(fn (CuotaPrestamo $c): int => (int) $c->total_centavos);
 
-        $tarjeta = (int) CuotaTarjeta::withoutGlobalScopes()
-            ->where('usuario_id', $usuarioId)
-            ->where('pagada', false)
-            ->whereBetween('fecha_vencimiento', [$inicio->toDateString(), $fin->toDateString()])
-            ->get()
-            ->sum(fn (CuotaTarjeta $c): int => (int) $c->total_centavos);
+        $tarjeta = app(ExtractoTarjetaService::class)->compromiso($usuarioId, $inicio, $fin, false);
 
         return $prestamo + $tarjeta;
     }

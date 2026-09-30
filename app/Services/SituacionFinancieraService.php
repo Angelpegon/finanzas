@@ -50,6 +50,7 @@ class SituacionFinancieraService
     public function responder(int $usuarioId, ?Carbon $fecha = null, bool $dashboard = false): array
     {
         $fecha ??= now();
+        app(ExtractoTarjetaService::class)->cerrarExtractosVencidos((int) $usuarioId, $fecha);
         $bolsilloIds = CuentasOperativas::idsBolsillosActivos($usuarioId);
         $cuentas = CuentaLiquida::withoutGlobalScopes()->where('usuario_id', $usuarioId)
             ->where('estado', '!=', 'cancelada')
@@ -149,6 +150,7 @@ class SituacionFinancieraService
     public function resumenShell(int $usuarioId, ?Carbon $fecha = null): array
     {
         $fecha ??= now();
+        app(ExtractoTarjetaService::class)->cerrarExtractosVencidos($usuarioId, $fecha);
         $clave = self::claveCacheShell($usuarioId, $fecha);
 
         return Cache::remember(
@@ -395,18 +397,12 @@ class SituacionFinancieraService
             ->get();
 
         foreach ($tarjetas as $tarjeta) {
-            $compras = $tarjeta->compras;
-            $pagosCapital = (int) Pago::withoutGlobalScopes()
-                ->where('usuario_id', $usuarioId)
-                ->where('tarjeta_credito_id', $tarjeta->id)
-                ->sum('capital_centavos');
-            $saldo = (int) $compras->sum('monto_centavos') - $pagosCapital;
+            $saldo = $tarjeta->saldo_actual_centavos;
             if ($saldo <= 0) {
                 continue;
             }
 
-            $cuotasPendientes = $compras->flatMap(fn ($c) => $c->cuotasProgramadas->where('pagada', false));
-            $proxima = $cuotasPendientes->sortBy('fecha_vencimiento')->first();
+            $ciclo = $tarjeta->cicloAbierto;
             $cupo = (int) $tarjeta->cupo_centavos;
 
             $items[] = [
@@ -417,15 +413,13 @@ class SituacionFinancieraService
                 'saldo_centavos' => $saldo,
                 'principal_centavos' => $cupo,
                 'avance_porcentaje' => $cupo > 0 ? round((1 - ($saldo / $cupo)) * 100, 1) : 0,
-                'cuota_centavos' => $proxima
-                    ? ((int) $proxima->capital_centavos + (int) $proxima->interes_centavos)
-                    : 0,
+                'cuota_centavos' => $ciclo ? $ciclo->minimoRestanteCentavos() : 0,
                 'ea_porcentaje' => (float) $tarjeta->ea_porcentaje,
                 'cuotas_pagadas' => null,
                 'cuotas_total' => null,
-                'proximo_pago' => $proxima?->fecha_vencimiento?->toDateString(),
-                'proximo_monto_centavos' => $proxima
-                    ? ((int) $proxima->capital_centavos + (int) $proxima->interes_centavos)
+                'proximo_pago' => $ciclo?->fecha_pago?->toDateString(),
+                'proximo_monto_centavos' => $ciclo && $ciclo->restanteCentavos() > 0
+                    ? $ciclo->restanteCentavos()
                     : null,
             ];
         }

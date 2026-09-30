@@ -6,7 +6,6 @@ use App\Enums\TipoHechoTesoreria;
 use App\Models\Categoria;
 use App\Models\CuentaLiquida;
 use App\Models\CuotaPrestamo;
-use App\Models\CuotaTarjeta;
 use App\Models\User;
 use App\Services\CuentaLiquidaService;
 use App\Services\MetaAhorroService;
@@ -204,20 +203,13 @@ class DemoDatosSeeder extends Seeder
             'Viaje corto'
         );
 
-        $cuotaVisa = CuotaTarjeta::withoutGlobalScopes()
-            ->where('tarjeta_credito_id', $visa->id)
-            ->where('pagada', false)
-            ->orderBy('fecha_vencimiento')
-            ->first();
-        if ($cuotaVisa) {
-            $tarjetas->registrarPago(
-                $uid,
-                (int) $visa->id,
-                (int) $banco->id,
-                (int) $cuotaVisa->id,
-                $cuotaVisa->fecha_vencimiento->toDateString()
-            );
-        }
+        $tarjetas->registrarPago(
+            $uid,
+            (int) $visa->id,
+            (int) $banco->id,
+            null,
+            now()->toDateString()
+        );
 
         $metaViaje = $metas->crear(
             $uid,

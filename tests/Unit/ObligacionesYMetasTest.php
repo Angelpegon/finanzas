@@ -51,9 +51,10 @@ class ObligacionesYMetasTest extends TestCase
         );
         $liqAntes = $cuenta->fresh()->saldoCentavos();
         $cat = Categoria::withoutGlobalScopes()->where('usuario_id', $user->id)->where('tipo', 'gasto')->firstOrFail();
+        $this->travelTo(\Illuminate\Support\Carbon::parse('2026-03-02'));
         $tarjeta = app(TarjetaService::class)->crear($user->id, 'Visa', 2_000_000_00, 5, 20, 1.5, 3.0);
         $compra = app(TarjetaService::class)->registrarCompra(
-            $user->id, $tarjeta->id, 300_000_00, 3, now()->toDateString(), 'compra', $cat->id, null, 'TV'
+            $user->id, $tarjeta->id, 300_000_00, 3, '2026-03-02', 'compra', $cat->id, null, 'TV'
         );
 
         $this->assertSame($liqAntes, $cuenta->fresh()->saldoCentavos());
@@ -61,6 +62,7 @@ class ObligacionesYMetasTest extends TestCase
         $this->assertSame(300_000_00, $tarjeta->fresh()->saldo_actual_centavos);
 
         $cuota = $compra->cuotasProgramadas->first();
+        $this->travelTo(\Illuminate\Support\Carbon::parse('2026-03-12'));
         app(TarjetaService::class)->registrarPago($user->id, $tarjeta->id, $cuenta->id, $cuota->id, now()->toDateString());
         $this->assertTrue($cuota->fresh()->pagada);
         $this->assertLessThan($liqAntes, $cuenta->fresh()->saldoCentavos());

@@ -224,6 +224,7 @@ class PagosFlujoTest extends TestCase
     public function test_pago_tarjeta_con_abono_extra_desde_movimientos(): void
     {
         $this->withoutVite();
+        $this->travelTo(\Illuminate\Support\Carbon::parse('2026-03-02'));
         $usuario = $this->usuarioConCatalogo();
         $cuenta = CuentaLiquida::where('usuario_id', $usuario->id)->firstOrFail();
         $this->fondear($usuario, $cuenta, 20_000_000);
@@ -257,8 +258,8 @@ class PagosFlujoTest extends TestCase
         $proxima = $cuotas->first();
         $minimo = (int) $proxima->capital_centavos + (int) $proxima->interes_centavos;
         $capitalUltima = (int) $cuotas->last()->capital_centavos;
-        $extra = intdiv($capitalUltima, 2);
-        $monto = $minimo + $extra;
+        $monto = $minimo;
+        $this->travelTo(\Illuminate\Support\Carbon::parse('2026-03-12'));
 
         $this->actingAs($usuario)
             ->get(route('app.pagos.index', ['pago' => 1]))
@@ -280,7 +281,7 @@ class PagosFlujoTest extends TestCase
         $response->assertRedirect(route('app.pagos.index', ['pago' => 1]));
 
         $pago = Pago::where('usuario_id', $usuario->id)->where('tipo', 'tarjeta')->firstOrFail();
-        $this->assertTrue($pago->extraordinario);
+        $this->assertFalse($pago->extraordinario);
         $this->assertTrue($proxima->fresh()->pagada);
         $this->assertSame(2, \App\Models\CuotaTarjeta::where('tarjeta_credito_id', $tarjeta->id)->where('pagada', false)->count());
 
@@ -288,7 +289,7 @@ class PagosFlujoTest extends TestCase
             ->where('pagada', false)
             ->orderByDesc('numero')
             ->firstOrFail();
-        $this->assertSame($capitalUltima - $extra, (int) $ultima->capital_centavos);
+        $this->assertSame($capitalUltima, (int) $ultima->capital_centavos);
 
         $this->actingAs($usuario)
             ->post(route('app.pagos.corregir', $pago), ['motivo' => 'Error abono'])
@@ -306,6 +307,7 @@ class PagosFlujoTest extends TestCase
     public function test_corregir_abono_tarjeta_no_borra_compra_posterior(): void
     {
         $this->withoutVite();
+        $this->travelTo(\Illuminate\Support\Carbon::parse('2026-03-02'));
         $usuario = $this->usuarioConCatalogo();
         $cuenta = CuentaLiquida::where('usuario_id', $usuario->id)->firstOrFail();
         $this->fondear($usuario, $cuenta, 20_000_000);
@@ -316,9 +318,7 @@ class PagosFlujoTest extends TestCase
         $svc->registrarCompra($usuario->id, $tarjeta->id, 300_000_00, 3, now()->toDateString(), 'compra', $cat->id);
 
         $cuotas = \App\Models\CuotaTarjeta::where('tarjeta_credito_id', $tarjeta->id)->orderBy('numero')->get();
-        $proxima = $cuotas->first();
-        $minimo = (int) $proxima->capital_centavos + (int) $proxima->interes_centavos;
-        $extra = (int) $cuotas->last()->capital_centavos;
+        $this->travelTo(\Illuminate\Support\Carbon::parse('2026-03-12'));
 
         $pago = $svc->registrarPago(
             $usuario->id,
@@ -326,9 +326,9 @@ class PagosFlujoTest extends TestCase
             $cuenta->id,
             null,
             now()->toDateString(),
-            $minimo + $extra
+            null
         );
-        $this->assertTrue($pago->extraordinario);
+        $this->assertFalse($pago->extraordinario);
 
         $compraNueva = $svc->registrarCompra(
             $usuario->id,

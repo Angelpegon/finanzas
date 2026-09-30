@@ -2,8 +2,8 @@
 
 namespace App\Services;
 
+use App\Models\CicloFacturacion;
 use App\Models\CuotaPrestamo;
-use App\Models\CuotaTarjeta;
 use App\Models\Presupuesto;
 use App\Models\TarjetaCredito;
 use Illuminate\Support\Carbon;
@@ -19,10 +19,14 @@ class AlertaService
             'mes' => $fecha->month,
         ]);
 
+        app(ExtractoTarjetaService::class)->cerrarExtractosVencidos($usuarioId, $fecha);
+
         $vencidos = CuotaPrestamo::withoutGlobalScopes()->where('usuario_id', $usuarioId)->where('pagada', false)
             ->whereDate('fecha_vencimiento', '<', $fecha->toDateString())->count()
-            + CuotaTarjeta::withoutGlobalScopes()->where('usuario_id', $usuarioId)->where('pagada', false)
-                ->whereDate('fecha_vencimiento', '<', $fecha->toDateString())->count();
+            + CicloFacturacion::withoutGlobalScopes()->where('usuario_id', $usuarioId)->where('estado', 'abierto')
+                ->whereDate('fecha_pago', '<', $fecha->toDateString())
+                ->whereColumn('pagado_centavos', '<', 'pago_minimo_centavos')
+                ->count();
         if ($vencidos > 0) {
             $alertas[] = $this->crear(
                 'danger',
@@ -34,8 +38,9 @@ class AlertaService
 
         $proximos = CuotaPrestamo::withoutGlobalScopes()->where('usuario_id', $usuarioId)->where('pagada', false)
             ->whereBetween('fecha_vencimiento', [$fecha->copy()->startOfDay(), $fecha->copy()->addDays(7)->endOfDay()])->count()
-            + CuotaTarjeta::withoutGlobalScopes()->where('usuario_id', $usuarioId)->where('pagada', false)
-                ->whereBetween('fecha_vencimiento', [$fecha->copy()->startOfDay(), $fecha->copy()->addDays(7)->endOfDay()])->count();
+            + CicloFacturacion::withoutGlobalScopes()->where('usuario_id', $usuarioId)->where('estado', 'abierto')
+                ->whereColumn('pagado_centavos', '<', 'pago_total_centavos')
+                ->whereBetween('fecha_pago', [$fecha->copy()->startOfDay(), $fecha->copy()->addDays(7)->endOfDay()])->count();
         if ($proximos > 0) {
             $alertas[] = $this->crear(
                 'warning',

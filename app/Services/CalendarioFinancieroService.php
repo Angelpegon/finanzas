@@ -4,7 +4,6 @@ namespace App\Services;
 
 use App\Enums\TipoHechoTesoreria;
 use App\Models\CuotaPrestamo;
-use App\Models\CuotaTarjeta;
 use App\Models\HechoTesoreria;
 use App\Models\Pago;
 use App\Models\Recurrencia;
@@ -94,23 +93,18 @@ class CalendarioFinancieroService
                 ));
             });
 
-        CuotaTarjeta::withoutGlobalScopes()
-            ->where('usuario_id', $usuarioId)
-            ->where('pagada', false)
-            ->whereBetween('fecha_vencimiento', [$inicio->toDateString(), $fin->toDateString()])
-            ->with('compra.tarjetaCredito')
-            ->get()
-            ->each(function (CuotaTarjeta $cuota) use ($eventos, $hoy): void {
-                $estado = $cuota->fecha_vencimiento->lt($hoy) ? 'vencido' : 'proyectado';
-                $eventos->push($this->evento(
-                    $cuota->fecha_vencimiento,
-                    'cuota',
-                    $estado,
-                    (int) $cuota->total_centavos,
-                    'Cuota '.($cuota->compra?->tarjetaCredito?->nombre ?: 'tarjeta').' #'.$cuota->numero,
-                    route('app.tarjetas.index')
-                ));
-            });
+        $eventosExtracto = app(ExtractoTarjetaService::class)->eventos($usuarioId, $inicio, $fin);
+        foreach ($eventosExtracto as $extracto) {
+            $fechaExtracto = Carbon::parse($extracto['fecha'])->startOfDay();
+            $eventos->push($this->evento(
+                $fechaExtracto,
+                'cuota',
+                $fechaExtracto->lt($hoy) ? 'vencido' : 'proyectado',
+                (int) $extracto['monto_centavos'],
+                $extracto['descripcion'],
+                route('app.tarjetas.index')
+            ));
+        }
 
         Recurrencia::withoutGlobalScopes()
             ->where('usuario_id', $usuarioId)
@@ -118,7 +112,7 @@ class CalendarioFinancieroService
             ->get()
             ->each(fn (Recurrencia $recurrencia) => $this->agregarRecurrencias($eventos, $recurrencia, $inicio, $fin, $hoy));
 
-        // Corte: marca informativa del ciclo (sin monto). El compromiso de caja son las cuotas.
+        // Corte: marca informativa. El compromiso de caja es el extracto (fecha límite).
         TarjetaCredito::withoutGlobalScopes()
             ->where('usuario_id', $usuarioId)
             ->where('activa', true)

@@ -8,6 +8,84 @@ import {
 
 const $ = window.jQuery;
 
+function barraDeCarga() {
+    let barra = document.getElementById('nav-progress');
+    if (! barra) {
+        barra = document.createElement('div');
+        barra.id = 'nav-progress';
+        barra.setAttribute('role', 'progressbar');
+        barra.setAttribute('aria-label', 'Cargando');
+        document.body.appendChild(barra);
+    }
+    barra.classList.add('is-active');
+}
+
+function marcarBotonOcupado(boton) {
+    if (! boton || boton.dataset.busy === '1') {
+        return;
+    }
+    boton.dataset.busy = '1';
+    boton.classList.add('is-busy');
+    boton.setAttribute('aria-busy', 'true');
+    const etiqueta = boton.dataset.loadingLabel;
+    if (etiqueta) {
+        boton.textContent = etiqueta;
+    }
+    window.setTimeout(() => {
+        boton.disabled = true;
+    }, 0);
+}
+
+function marcarEspera(form, submitter) {
+    const botones = submitter
+        ? [submitter]
+        : [...form.querySelectorAll('button[type="submit"], input[type="submit"]')];
+    barraDeCarga();
+    botones.forEach((boton) => marcarBotonOcupado(boton));
+}
+
+function esNavegacionInterna(enlace, evento) {
+    if (! enlace || evento.defaultPrevented) {
+        return false;
+    }
+    if (evento.metaKey || evento.ctrlKey || evento.shiftKey || evento.altKey || evento.button !== 0) {
+        return false;
+    }
+    if (enlace.target && enlace.target !== '_self') {
+        return false;
+    }
+    if (enlace.hasAttribute('download')) {
+        return false;
+    }
+    const href = enlace.getAttribute('href') || '';
+    if (href === '' || href.startsWith('#') || href.startsWith('javascript:')) {
+        return false;
+    }
+    let url;
+    try {
+        url = new URL(enlace.href, window.location.href);
+    } catch (e) {
+        return false;
+    }
+    if (url.origin !== window.location.origin) {
+        return false;
+    }
+
+    return url.pathname !== window.location.pathname || url.search !== window.location.search;
+}
+
+document.addEventListener('click', (evento) => {
+    const enlace = evento.target.closest?.('a[href]');
+    if (! esNavegacionInterna(enlace, evento)) {
+        return;
+    }
+    barraDeCarga();
+});
+
+window.addEventListener('pageshow', () => {
+    document.getElementById('nav-progress')?.classList.remove('is-active');
+});
+
 if ($) {
     const normalizarMilesDelForm = (form) => {
         form.querySelectorAll('[data-miles]').forEach((input) => {
@@ -54,7 +132,7 @@ if ($) {
             return false;
         }
         form.dataset.submitting = '1';
-        $(form).find('button[type="submit"], input[type="submit"]').prop('disabled', true);
+        marcarEspera(form, evento.originalEvent?.submitter || null);
     });
 
     $('[data-mov-tabs]').each(function () {
@@ -140,10 +218,7 @@ if ($) {
                 if (resultado.isConfirmed) {
                     form.dataset.submitting = '1';
                     normalizarMilesDelForm(form);
-                    const submitters = form.querySelectorAll('button[type="submit"], input[type="submit"]');
-                    submitters.forEach((el) => {
-                        el.disabled = true;
-                    });
+                    marcarEspera(form, null);
                     HTMLFormElement.prototype.submit.call(form);
                 }
             });

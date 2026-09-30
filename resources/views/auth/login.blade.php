@@ -25,7 +25,7 @@
         </div>
     </div>
     <div class="auth-actions">
-        <button class="btn btn-primary btn-lg w-100" type="submit">Ingresar</button>
+        <button class="btn btn-primary btn-lg w-100" type="submit" data-loading-label="Iniciando…">Ingresar</button>
     </div>
 </form>
 <p class="auth-card__footer">¿Aún no tienes cuenta? <a href="{{ route('register') }}">Crear cuenta</a></p>

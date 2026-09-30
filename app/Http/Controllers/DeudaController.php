@@ -24,6 +24,7 @@ class DeudaController extends Controller
     public function index(): View
     {
         $usuarioId = (int) Auth::id();
+        app(\App\Services\ExtractoTarjetaService::class)->cerrarExtractosVencidos($usuarioId);
         $prestamos = Prestamo::with('cuotas')->orderByDesc('id')->get();
         $pagosRecientes = Pago::query()
             ->where('tipo', 'prestamo')
@@ -60,7 +61,7 @@ class DeudaController extends Controller
 
         return view('deudas.index', [
             'prestamos' => $prestamos,
-            'tarjetas' => TarjetaCredito::with('compras.cuotasProgramadas')->get(),
+            'tarjetas' => TarjetaCredito::with(['cuentaContable', 'compras.cuotasProgramadas'])->get(),
             'cuentasPago' => CuentasOperativas::queryActivas($usuarioId)->orderBy('nombre')->get(),
             'pagosRecientes' => $pagosRecientes,
             'idsRevertidos' => $idsRevertidos,

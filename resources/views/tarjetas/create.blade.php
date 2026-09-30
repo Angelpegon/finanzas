@@ -54,6 +54,24 @@
                     @include('layouts.partials.field-error', ['name' => 'tasa_avances_mensual'])
                 </div>
             </div>
+            <div class="row g-3 mt-1">
+                <div class="col-6">
+                    <label class="form-label" for="tasa_mora_mensual">Mora (%)</label>
+                    <input id="tasa_mora_mensual" name="tasa_mora_mensual" value="{{ old('tasa_mora_mensual', 0) }}" type="number" min="0" step="0.01" class="form-control form-control-lg @error('tasa_mora_mensual') is-invalid @enderror">
+                    @include('layouts.partials.field-error', ['name' => 'tasa_mora_mensual'])
+                </div>
+                <div class="col-6">
+                    <label class="form-label" for="porcentaje_abono_capital_minimo">Abono a capital en el mínimo (%)</label>
+                    <input id="porcentaje_abono_capital_minimo" name="porcentaje_abono_capital_minimo" value="{{ old('porcentaje_abono_capital_minimo', 5) }}" type="number" min="0" max="100" step="0.01" class="form-control form-control-lg @error('porcentaje_abono_capital_minimo') is-invalid @enderror" required>
+                    @include('layouts.partials.field-error', ['name' => 'porcentaje_abono_capital_minimo'])
+                </div>
+            </div>
+            <p class="small text-secondary mt-2">Mora en 0 usa la tasa de compras. El porcentaje es la porción de capital rotativo que entra al pago mínimo; el diferido del mes entra completo.</p>
+            <div class="mt-3">
+                <label class="form-label" for="cuota_manejo">Cuota de manejo</label>
+                <input id="cuota_manejo" name="cuota_manejo" value="{{ old('cuota_manejo', 0) }}" type="text" data-miles inputmode="decimal" class="form-control form-control-lg @error('cuota_manejo') is-invalid @enderror">
+                @include('layouts.partials.field-error', ['name' => 'cuota_manejo'])
+            </div>
         </section>
 
         <section class="form-section">

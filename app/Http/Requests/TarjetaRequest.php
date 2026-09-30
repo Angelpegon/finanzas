@@ -16,7 +16,7 @@ class TarjetaRequest extends FormRequest
 
     protected function camposMoneda(): array
     {
-        return ['cupo'];
+        return ['cupo', 'cuota_manejo'];
     }
 
     public function rules(): array
@@ -27,6 +27,9 @@ class TarjetaRequest extends FormRequest
             'cupo' => ['required', 'numeric', 'gt:0'],
             'tasa_compras_mensual' => ['required', 'numeric', 'min:0'],
             'tasa_avances_mensual' => ['required', 'numeric', 'min:0'],
+            'tasa_mora_mensual' => ['nullable', 'numeric', 'min:0'],
+            'porcentaje_abono_capital_minimo' => ['required', 'numeric', 'min:0', 'max:100'],
+            'cuota_manejo' => ['nullable', 'numeric', 'min:0'],
             'dia_corte' => ['required', 'integer', 'between:1,31'],
             'dia_pago' => ['required', 'integer', 'between:1,31'],
             'idempotency_key' => ['required', 'string', 'max:64', 'regex:/^[A-Za-z0-9_-]+$/'],

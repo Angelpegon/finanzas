@@ -6,6 +6,7 @@ use App\Models\Concerns\PerteneceAlUsuario;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class TarjetaCredito extends Model
 {
@@ -22,6 +23,8 @@ class TarjetaCredito extends Model
         'activa' => 'boolean',
         'fecha_inicio' => 'date',
         'fecha_vencimiento' => 'date',
+        'porcentaje_abono_capital_minimo' => 'float',
+        'tasa_mora_mensual' => 'float',
     ];
 
     protected $appends = [
@@ -49,6 +52,12 @@ class TarjetaCredito extends Model
     public function cuotasProgramadas(): HasMany
     {
         return $this->hasMany(CuotaTarjeta::class, 'tarjeta_credito_id');
+    }
+
+    public function cicloAbierto(): HasOne
+    {
+        return $this->hasOne(CicloFacturacion::class, 'tarjeta_credito_id')
+            ->where('estado', 'abierto');
     }
 
     public function getSaldoActualCentavosAttribute(): int
@@ -90,18 +99,15 @@ class TarjetaCredito extends Model
 
     public function getPagoTotalCentavosAttribute(): int
     {
-        return (int) $this->cuotasCargadas()
-            ->where('pagada', false)
-            ->sum(fn (CuotaTarjeta $cuota) => (int) $cuota->capital_centavos + (int) $cuota->interes_centavos);
+        $ciclo = $this->cicloAbierto;
+
+        return $ciclo ? $ciclo->restanteCentavos() : 0;
     }
 
     public function getPagoMinimoCentavosAttribute(): int
     {
-        $cuota = $this->cuotasCargadas()
-            ->where('pagada', false)
-            ->sortBy('fecha_vencimiento')
-            ->first();
+        $ciclo = $this->cicloAbierto;
 
-        return $cuota ? (int) $cuota->capital_centavos + (int) $cuota->interes_centavos : 0;
+        return $ciclo ? $ciclo->minimoRestanteCentavos() : 0;
     }
 }
