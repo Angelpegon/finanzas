@@ -61,7 +61,7 @@ class DeudaController extends Controller
 
         return view('deudas.index', [
             'prestamos' => $prestamos,
-            'tarjetas' => TarjetaCredito::with(['cuentaContable', 'compras.cuotasProgramadas'])->get(),
+            'tarjetas' => TarjetaCredito::with(['cuentaContable', 'cicloAbierto'])->get(),
             'cuentasPago' => CuentasOperativas::queryActivas($usuarioId)->orderBy('nombre')->get(),
             'pagosRecientes' => $pagosRecientes,
             'idsRevertidos' => $idsRevertidos,

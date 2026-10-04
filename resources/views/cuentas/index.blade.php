@@ -7,6 +7,7 @@
 @include('layouts.partials.form-errors')
 @php
     $destinosActivos = $cuentas;
+    $panelCuenta = old('_panel_cuenta');
 @endphp
 
 <div class="page-toolbar">
@@ -53,14 +54,14 @@
                     Cancelar…
                 </button>
             </div>
-            <div class="collapse mt-3" id="archivar-{{ $cuenta->id }}">
+            <div class="collapse mt-3 {{ $panelCuenta === 'archivar-'.$cuenta->id ? 'show' : '' }}" id="archivar-{{ $cuenta->id }}">
                 @include('cuentas.partials.archivar-form', [
                     'cuenta' => $cuenta,
                     'saldo' => $saldo,
                     'destinos' => $destinosActivos->where('id', '!=', $cuenta->id),
                 ])
             </div>
-            <div class="collapse mt-3" id="cancelar-{{ $cuenta->id }}">
+            <div class="collapse mt-3 {{ $panelCuenta === 'cancelar-'.$cuenta->id ? 'show' : '' }}" id="cancelar-{{ $cuenta->id }}">
                 @include('cuentas.partials.cancelar-form', [
                     'cuenta' => $cuenta,
                     'saldo' => $saldo,
@@ -112,7 +113,7 @@
                     Cancelar…
                 </button>
             </div>
-            <div class="collapse mt-3" id="cancelar-arch-{{ $cuenta->id }}">
+            <div class="collapse mt-3 {{ $panelCuenta === 'cancelar-'.$cuenta->id ? 'show' : '' }}" id="cancelar-arch-{{ $cuenta->id }}">
                 @include('cuentas.partials.cancelar-form', [
                     'cuenta' => $cuenta,
                     'saldo' => $saldo,

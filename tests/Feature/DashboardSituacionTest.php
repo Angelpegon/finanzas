@@ -7,6 +7,7 @@ use App\Models\Categoria;
 use App\Models\CuentaLiquida;
 use App\Services\MetaAhorroService;
 use App\Services\SituacionFinancieraService;
+use App\Services\TarjetaService;
 use App\Services\TesoreriaService;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
@@ -26,7 +27,7 @@ class DashboardSituacionTest extends TestCase
             ->get(route('app.situacion'))
             ->assertOk()
             ->assertSee('Situación')
-            ->assertSee('Disponible libre')
+            ->assertSee('Libre hoy')
             ->assertSee('Cuentas operativas')
             ->assertSee('Total operativo')
             ->assertSee('Ingresos del mes')
@@ -151,5 +152,33 @@ class DashboardSituacionTest extends TestCase
         $this->assertNotEmpty($datos['calendario_grilla']['celdas']);
 
         Carbon::setTestNow();
+    }
+
+    public function test_proximos_pagos_agrupa_tarjeta_en_un_extracto(): void
+    {
+        $this->travelTo(Carbon::parse('2026-03-02'));
+        $usuario = $this->usuarioConCatalogo();
+        $cuenta = CuentaLiquida::withoutGlobalScopes()->where('usuario_id', $usuario->id)->firstOrFail();
+        app(TesoreriaService::class)->registrar(
+            $usuario->id,
+            TipoHechoTesoreria::Apertura,
+            '2026-03-01',
+            20_000_000_00,
+            $cuenta->id
+        );
+        $cat = Categoria::withoutGlobalScopes()->where('usuario_id', $usuario->id)->where('tipo', 'gasto')->firstOrFail();
+        $tarjetas = app(TarjetaService::class);
+        $tarjeta = $tarjetas->crear($usuario->id, 'MasterCards Digital', 5_000_000_00, 10, 30, 2.5, 3.5);
+        $tarjetas->registrarCompra($usuario->id, $tarjeta->id, 180_000_00, 3, '2026-03-02', 'compra', $cat->id, null, 'Compra A');
+        $tarjetas->registrarCompra($usuario->id, $tarjeta->id, 540_000_00, 3, '2026-03-02', 'compra', $cat->id, null, 'Compra B');
+
+        $this->travelTo(Carbon::parse('2026-03-12'));
+        $datos = app(SituacionFinancieraService::class)->responder($usuario->id, Carbon::parse('2026-03-12'), true);
+        $deTarjeta = collect($datos['proximos_vencimientos'])->where('tipo', 'tarjeta')->values();
+
+        $this->assertCount(1, $deTarjeta);
+        $this->assertSame('MasterCards Digital', $deTarjeta[0]->nombre);
+        $this->assertSame('Extracto', $deTarjeta[0]->detalle);
+        $this->assertGreaterThan(0, $deTarjeta[0]->total_centavos);
     }
 }

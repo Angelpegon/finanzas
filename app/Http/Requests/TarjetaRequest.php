@@ -32,7 +32,12 @@ class TarjetaRequest extends FormRequest
             'cuota_manejo' => ['nullable', 'numeric', 'min:0'],
             'dia_corte' => ['required', 'integer', 'between:1,31'],
             'dia_pago' => ['required', 'integer', 'between:1,31'],
-            'idempotency_key' => ['required', 'string', 'max:64', 'regex:/^[A-Za-z0-9_-]+$/'],
+            'idempotency_key' => [
+                $this->isMethod('post') ? 'required' : 'nullable',
+                'string',
+                'max:64',
+                'regex:/^[A-Za-z0-9_-]+$/',
+            ],
         ];
     }
 
@@ -40,6 +45,7 @@ class TarjetaRequest extends FormRequest
     {
         return [
             'idempotency_key.required' => 'Recarga el formulario e intenta de nuevo.',
+            'cupo.gt' => 'El cupo debe ser mayor que cero.',
         ];
     }
 }

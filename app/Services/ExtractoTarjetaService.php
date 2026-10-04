@@ -15,11 +15,13 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Extracto colombiano: un solo pago por corte.
- * Diferido entra solo con la cuota del mes. Corriente conserva gracia si el
- * ciclo anterior se pagó por el total; si no, el saldo rota con interés
- * desde la compra. El avance no tiene gracia. Mora solo si el mínimo anterior
- * no se cubrió a la fecha límite.
+ * Extracto colombiano + abono extraordinario.
+ * Diferido entra al extracto solo con la cuota del mes. Corriente conserva
+ * gracia si el ciclo anterior se pagó por el total; si no, rota con interés
+ * desde la compra. El avance no tiene gracia. Mora si el mínimo anterior no
+ * se cubrió a la fecha límite. Se puede pagar en cualquier momento hasta el
+ * pasivo: primero el extracto abierto; el exceso adelanta capital (diferido
+ * con interés programado condonado).
  */
 class ExtractoTarjetaService
 {
@@ -73,23 +75,31 @@ class ExtractoTarjetaService
             }
 
             $this->cerrarTarjeta($tarjeta, Carbon::parse($fecha)->greaterThan(now()) ? Carbon::parse($fecha) : now());
+            $tarjeta->refresh();
             $ciclo = $this->cicloAbiertoBloqueado($usuarioId, (int) $tarjeta->id);
-            if (! $ciclo) {
-                throw new \InvalidArgumentException('Todavía no hay extracto. Se arma el día de corte.');
+            $restanteExtracto = $ciclo ? $ciclo->restanteCentavos() : 0;
+            $pasivo = (int) $tarjeta->saldo_actual_centavos;
+
+            if ($pasivo <= 0) {
+                throw new \InvalidArgumentException('Esta tarjeta no tiene saldo pendiente.');
             }
 
-            $restante = $ciclo->restanteCentavos();
-            if ($restante <= 0) {
-                throw new \InvalidArgumentException('El extracto de esta tarjeta ya está pagado.');
+            if ($montoCentavos === null) {
+                if ($ciclo && $restanteExtracto > 0) {
+                    $minimoRestante = $ciclo->minimoRestanteCentavos();
+                    $pagar = $minimoRestante > 0 ? $minimoRestante : $restanteExtracto;
+                } else {
+                    $pagar = $pasivo;
+                }
+            } else {
+                $pagar = $montoCentavos;
             }
 
-            $minimoRestante = $ciclo->minimoRestanteCentavos();
-            $pagar = $montoCentavos ?? ($minimoRestante > 0 ? $minimoRestante : $restante);
             if ($pagar <= 0) {
                 throw new \InvalidArgumentException('El monto del pago debe ser positivo.');
             }
-            if ($pagar > $restante) {
-                throw new \InvalidArgumentException('El pago supera lo que pide el extracto. El saldo diferido de meses futuros no se adelanta aquí.');
+            if ($pagar > $pasivo) {
+                throw new \InvalidArgumentException('El pago supera el saldo de la tarjeta.');
             }
 
             $liquida = $this->cuentaOperativaBloqueada($usuarioId, $cuentaLiquidaId);
@@ -97,54 +107,91 @@ class ExtractoTarjetaService
                 throw new \InvalidArgumentException('Saldo insuficiente en la cuenta de pago.');
             }
 
-            $cubetas = $this->aplicarCubetas($ciclo, $pagar);
-            $cuotas = $this->cuotasDelCiclo($usuarioId, (int) $tarjeta->id, $ciclo);
-            $snapshot = $cuotas->map(fn (CuotaTarjeta $c) => [
+            $cuotasSnapshot = CuotaTarjeta::withoutGlobalScopes()
+                ->where('usuario_id', $usuarioId)
+                ->where('tarjeta_credito_id', $tarjeta->id)
+                ->where('pagada', false)
+                ->orderBy('id')
+                ->get();
+            $snapshot = $cuotasSnapshot->map(fn (CuotaTarjeta $c) => [
                 'id' => (int) $c->id,
                 'abonado_centavos' => (int) $c->abonado_centavos,
                 'pagada' => (bool) $c->pagada,
+                'interes_centavos' => (int) $c->interes_centavos,
             ])->values()->all();
 
-            $this->abonarCuotas(
-                $cuotas->filter(fn (CuotaTarjeta $c) => $this->esExigida($c))->values(),
-                $cubetas['aplicado_interes_diferido'],
-                $cubetas['aplicado_capital_diferido']
-            );
-            $this->abonarCuotas(
-                $cuotas->filter(fn (CuotaTarjeta $c) => $this->esRotativa($c))->values(),
-                0,
-                $cubetas['aplicado_capital_rotativo']
-            );
+            $aplicadoExtracto = 0;
+            $interesPago = 0;
+            $capitalExtracto = 0;
+            $pagadoAntes = $ciclo ? (int) $ciclo->pagado_centavos : 0;
+            $nuevoPagado = $pagadoAntes;
 
-            $nuevoPagado = (int) $ciclo->pagado_centavos + $pagar;
-            $ciclo->forceFill([
-                'pagado_centavos' => $nuevoPagado,
-                'estado' => $nuevoPagado >= (int) $ciclo->pago_total_centavos ? 'liquidado' : 'abierto',
-            ])->save();
+            if ($ciclo && $restanteExtracto > 0) {
+                $aplicadoExtracto = min($pagar, $restanteExtracto);
+                $cubetas = $this->aplicarCubetas($ciclo, $aplicadoExtracto);
+                $cuotas = $this->cuotasDelCiclo($usuarioId, (int) $tarjeta->id, $ciclo);
+                $this->abonarCuotas(
+                    $cuotas->filter(fn (CuotaTarjeta $c) => $this->esExigida($c))->values(),
+                    $cubetas['aplicado_interes_diferido'],
+                    $cubetas['aplicado_capital_diferido']
+                );
+                $this->abonarCuotas(
+                    $cuotas->filter(fn (CuotaTarjeta $c) => $this->esRotativa($c))->values(),
+                    0,
+                    $cubetas['aplicado_capital_rotativo']
+                );
 
-            $interesPago = $cubetas['aplicado_mora']
-                + $cubetas['aplicado_interes_rotativo']
-                + $cubetas['aplicado_interes_diferido']
-                + $cubetas['aplicado_cargos'];
-            $capitalPago = $cubetas['aplicado_capital_diferido'] + $cubetas['aplicado_capital_rotativo'];
+                $nuevoPagado = $pagadoAntes + $aplicadoExtracto;
+                $ciclo->forceFill([
+                    'pagado_centavos' => $nuevoPagado,
+                    'estado' => $nuevoPagado >= (int) $ciclo->pago_total_centavos ? 'liquidado' : 'abierto',
+                ])->save();
+
+                $interesPago = $cubetas['aplicado_mora']
+                    + $cubetas['aplicado_interes_rotativo']
+                    + $cubetas['aplicado_interes_diferido']
+                    + $cubetas['aplicado_cargos'];
+                $capitalExtracto = $cubetas['aplicado_capital_diferido'] + $cubetas['aplicado_capital_rotativo'];
+            }
+
+            $exceso = $pagar - $aplicadoExtracto;
+            $capitalExtra = $exceso > 0
+                ? $this->aplicarAbonoExtraordinario($usuarioId, (int) $tarjeta->id, $exceso)
+                : 0;
+            if ($exceso > 0 && $capitalExtra !== $exceso) {
+                throw new \InvalidArgumentException('No hay capital pendiente suficiente para ese abono.');
+            }
+
+            $sobreMinimo = $ciclo && $aplicadoExtracto > 0 && $nuevoPagado > (int) $ciclo->pago_minimo_centavos;
+            $extraordinario = $exceso > 0 || $sobreMinimo;
+
+            if ($aplicadoExtracto > 0 && $exceso > 0) {
+                $descripcion = 'Pago de extracto '.$ciclo->fecha_corte?->format('d/m/Y').' + abono extraordinario';
+            } elseif ($aplicadoExtracto > 0) {
+                $descripcion = 'Pago de extracto '.$ciclo->fecha_corte?->format('d/m/Y');
+            } else {
+                $descripcion = 'Abono extraordinario a tarjeta';
+            }
 
             $pago = Pago::withoutGlobalScopes()->create([
                 'usuario_id' => $usuarioId,
                 'tipo' => 'tarjeta',
                 'tarjeta_credito_id' => $tarjeta->id,
-                'ciclo_facturacion_id' => $ciclo->id,
+                'ciclo_facturacion_id' => ($ciclo && $aplicadoExtracto > 0) ? $ciclo->id : null,
                 'cuenta_liquida_id' => $liquida->id,
                 'fecha' => $fecha,
                 'monto_centavos' => $pagar,
-                'capital_centavos' => $capitalPago,
+                'capital_centavos' => $capitalExtracto + $capitalExtra,
                 'interes_centavos' => $interesPago,
-                'extraordinario' => $nuevoPagado > (int) $ciclo->pago_minimo_centavos,
+                'extraordinario' => $extraordinario,
                 'cronograma_snapshot' => [
-                    'ciclo_id' => (int) $ciclo->id,
-                    'pagado_antes' => $nuevoPagado - $pagar,
+                    'ciclo_id' => ($ciclo && $aplicadoExtracto > 0) ? (int) $ciclo->id : null,
+                    'pagado_antes' => $pagadoAntes,
+                    'aplicado_extracto' => $aplicadoExtracto,
+                    'aplicado_extraordinario' => $capitalExtra,
                     'cuotas' => $snapshot,
                 ],
-                'descripcion' => 'Pago de extracto '.$ciclo->fecha_corte?->format('d/m/Y'),
+                'descripcion' => $descripcion,
             ]);
 
             $this->contabilizacion->postear(
@@ -177,10 +224,6 @@ class ExtractoTarjetaService
                 ->lockForUpdate()
                 ->findOrFail($pagoId);
 
-            if ($pago->ciclo_facturacion_id === null) {
-                throw new \InvalidArgumentException('Este pago no está vinculado a un extracto.');
-            }
-
             $ultimoId = (int) Pago::withoutGlobalScopes()
                 ->where('usuario_id', $usuarioId)
                 ->where('tarjeta_credito_id', $pago->tarjeta_credito_id)
@@ -191,11 +234,19 @@ class ExtractoTarjetaService
                 throw new \InvalidArgumentException('Solo se puede corregir el último pago de la tarjeta.');
             }
 
-            $posterior = CicloFacturacion::withoutGlobalScopes()
-                ->where('usuario_id', $usuarioId)
-                ->where('tarjeta_credito_id', $pago->tarjeta_credito_id)
-                ->where('id', '>', (int) $pago->ciclo_facturacion_id)
-                ->exists();
+            if ($pago->ciclo_facturacion_id !== null) {
+                $posterior = CicloFacturacion::withoutGlobalScopes()
+                    ->where('usuario_id', $usuarioId)
+                    ->where('tarjeta_credito_id', $pago->tarjeta_credito_id)
+                    ->where('id', '>', (int) $pago->ciclo_facturacion_id)
+                    ->exists();
+            } else {
+                $posterior = CicloFacturacion::withoutGlobalScopes()
+                    ->where('usuario_id', $usuarioId)
+                    ->where('tarjeta_credito_id', $pago->tarjeta_credito_id)
+                    ->whereDate('fecha_corte', '>', $pago->fecha?->toDateString() ?? $pago->fecha)
+                    ->exists();
+            }
             if ($posterior) {
                 throw new \InvalidArgumentException('Ya hubo un corte posterior. Ese pago no se puede reabrir.');
             }
@@ -217,26 +268,33 @@ class ExtractoTarjetaService
 
             $snap = $pago->cronograma_snapshot ?? [];
             foreach ($snap['cuotas'] ?? [] as $fila) {
+                $datos = [
+                    'abonado_centavos' => (int) $fila['abonado_centavos'],
+                    'pagada' => (bool) $fila['pagada'],
+                    'pagada_en' => null,
+                ];
+                if (array_key_exists('interes_centavos', $fila)) {
+                    $datos['interes_centavos'] = (int) $fila['interes_centavos'];
+                }
                 CuotaTarjeta::withoutGlobalScopes()
                     ->where('usuario_id', $usuarioId)
                     ->whereKey((int) $fila['id'])
-                    ->update([
-                        'abonado_centavos' => (int) $fila['abonado_centavos'],
-                        'pagada' => (bool) $fila['pagada'],
-                        'pagada_en' => null,
-                    ]);
+                    ->update($datos);
             }
 
-            $ciclo = CicloFacturacion::withoutGlobalScopes()
-                ->where('usuario_id', $usuarioId)
-                ->whereKey((int) $pago->ciclo_facturacion_id)
-                ->lockForUpdate()
-                ->firstOrFail();
-            $pagado = max(0, (int) ($snap['pagado_antes'] ?? ((int) $ciclo->pagado_centavos - (int) $pago->monto_centavos)));
-            $ciclo->forceFill([
-                'pagado_centavos' => $pagado,
-                'estado' => $pagado >= (int) $ciclo->pago_total_centavos ? 'liquidado' : 'abierto',
-            ])->save();
+            if ($pago->ciclo_facturacion_id !== null) {
+                $ciclo = CicloFacturacion::withoutGlobalScopes()
+                    ->where('usuario_id', $usuarioId)
+                    ->whereKey((int) $pago->ciclo_facturacion_id)
+                    ->lockForUpdate()
+                    ->firstOrFail();
+                $aplicadoExtracto = (int) ($snap['aplicado_extracto'] ?? $pago->monto_centavos);
+                $pagado = max(0, (int) ($snap['pagado_antes'] ?? ((int) $ciclo->pagado_centavos - $aplicadoExtracto)));
+                $ciclo->forceFill([
+                    'pagado_centavos' => $pagado,
+                    'estado' => $pagado >= (int) $ciclo->pago_total_centavos ? 'liquidado' : 'abierto',
+                ])->save();
+            }
         });
     }
 
@@ -604,6 +662,79 @@ class ExtractoTarjetaService
             'interes_mora' => $todo['interes_mora'],
             'cargos' => $todo['cargos'],
         ];
+    }
+
+    /**
+     * Abono fuera del extracto: capital rotativo no cubierto y luego diferido
+     * (próximas cuotas). El interés programado del diferido adelantado se condona.
+     */
+    private function aplicarAbonoExtraordinario(int $usuarioId, int $tarjetaId, int $monto): int
+    {
+        if ($monto <= 0) {
+            return 0;
+        }
+
+        $vivas = $this->cuotasVivas($usuarioId, $tarjetaId);
+        $orden = static fn (Collection $items): Collection => $items->sortBy([
+            ['fecha_vencimiento', 'asc'],
+            ['numero', 'asc'],
+            ['id', 'asc'],
+        ])->values();
+
+        $bolsa = $monto;
+        $aplicado = 0;
+
+        foreach ($orden($vivas->filter(fn (CuotaTarjeta $c) => $this->esRotativa($c))) as $cuota) {
+            if ($bolsa <= 0) {
+                break;
+            }
+            $usa = min($bolsa, $this->faltaCapital($cuota));
+            if ($usa <= 0) {
+                continue;
+            }
+            $this->aplicarAbono($cuota, $usa);
+            $cuota->refresh();
+            $this->condonarInteresPendiente($cuota);
+            $bolsa -= $usa;
+            $aplicado += $usa;
+        }
+
+        foreach ($orden($vivas->filter(fn (CuotaTarjeta $c) => $this->esDiferida($c) || $this->esAvanceUna($c))) as $cuota) {
+            if ($bolsa <= 0) {
+                break;
+            }
+            $cuota->refresh();
+            $faltaCap = $this->faltaCapital($cuota);
+            $usa = min($bolsa, $faltaCap);
+            if ($usa <= 0) {
+                continue;
+            }
+            // El interés programado va “delante” en abonado; se condona para que el efectivo vaya a capital.
+            $this->condonarInteresPendiente($cuota);
+            $cuota->refresh();
+            $this->aplicarAbono($cuota, $usa);
+            $cuota->refresh();
+            $this->condonarInteresPendiente($cuota);
+            $bolsa -= $usa;
+            $aplicado += $usa;
+        }
+
+        return $aplicado;
+    }
+
+    private function condonarInteresPendiente(CuotaTarjeta $cuota): void
+    {
+        $falta = $this->faltaInteres($cuota);
+        if ($falta <= 0) {
+            return;
+        }
+        $abonado = (int) $cuota->abonado_centavos + $falta;
+        $total = (int) $cuota->capital_centavos + (int) $cuota->interes_centavos;
+        $cuota->forceFill([
+            'abonado_centavos' => $abonado,
+            'pagada' => $abonado >= $total,
+            'pagada_en' => $abonado >= $total ? now() : $cuota->pagada_en,
+        ])->save();
     }
 
     /**

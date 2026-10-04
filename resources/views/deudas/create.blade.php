@@ -1,7 +1,7 @@
 @extends('layouts.app', [
     'title' => 'Nueva obligación',
     'heading' => 'Registra lo que debes',
-    'subtitle' => 'El saldo y las cuotas se calcularán desde el calendario.',
+    'subtitle' => 'Al guardar, el desembolso entra a tu cuenta y se arma el cronograma de cuotas.',
     'backUrl' => route('app.deudas.index'),
     'backLabel' => 'Volver a deudas',
 ])

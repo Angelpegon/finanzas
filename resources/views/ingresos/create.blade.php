@@ -37,22 +37,36 @@
             </div>
             <div>
                 <label class="form-label" for="categoria_id">Tipo de ingreso</label>
-                <select id="categoria_id" name="categoria_id" class="form-select form-select-lg @error('categoria_id') is-invalid @enderror" required>
-                    <option value="">Selecciona un tipo</option>
-                    @foreach($categorias as $categoria)
-                        <option value="{{ $categoria->id }}" @selected(old('categoria_id') == $categoria->id)>{{ $categoria->nombre }}</option>
-                    @endforeach
+                <select id="categoria_id" name="categoria_id" class="form-select form-select-lg @error('categoria_id') is-invalid @enderror" required @disabled($categorias->isEmpty())>
+                    @if($categorias->isEmpty())
+                        <option value="">Sin categorías de ingreso</option>
+                    @else
+                        <option value="">Selecciona un tipo</option>
+                        @foreach($categorias as $categoria)
+                            <option value="{{ $categoria->id }}" @selected(old('categoria_id') == $categoria->id)>{{ $categoria->nombre }}</option>
+                        @endforeach
+                    @endif
                 </select>
+                @if($categorias->isEmpty())
+                    <small class="text-danger d-block">Crea una categoría de ingreso en <a href="{{ route('app.presupuestos.index') }}">Presupuesto</a>.</small>
+                @endif
                 @include('layouts.partials.field-error', ['name' => 'categoria_id'])
             </div>
             <div>
                 <label class="form-label" for="cuenta_liquida_id">Cuenta destino</label>
-                <select id="cuenta_liquida_id" name="cuenta_liquida_id" class="form-select form-select-lg @error('cuenta_liquida_id') is-invalid @enderror" required>
-                    <option value="">Selecciona una cuenta</option>
-                    @foreach($cuentas as $cuenta)
-                        <option value="{{ $cuenta->id }}" @selected(old('cuenta_liquida_id') == $cuenta->id)>{{ $cuenta->nombre }}</option>
-                    @endforeach
+                <select id="cuenta_liquida_id" name="cuenta_liquida_id" class="form-select form-select-lg @error('cuenta_liquida_id') is-invalid @enderror" required @disabled($cuentas->isEmpty())>
+                    @if($cuentas->isEmpty())
+                        <option value="">Sin cuentas activas</option>
+                    @else
+                        <option value="">Selecciona una cuenta</option>
+                        @foreach($cuentas as $cuenta)
+                            <option value="{{ $cuenta->id }}" @selected(old('cuenta_liquida_id') == $cuenta->id)>{{ $cuenta->nombre }}</option>
+                        @endforeach
+                    @endif
                 </select>
+                @if($cuentas->isEmpty())
+                    <small class="text-danger d-block">Crea una <a href="{{ route('app.cuentas.create') }}">cuenta operativa</a>.</small>
+                @endif
                 @include('layouts.partials.field-error', ['name' => 'cuenta_liquida_id'])
             </div>
             <div>
@@ -97,7 +111,7 @@
         </section>
 
         <div class="form-actions">
-            <button class="btn btn-primary btn-lg w-100" type="submit">Guardar ingreso</button>
+            <button class="btn btn-primary btn-lg w-100" type="submit" @disabled($categorias->isEmpty() || $cuentas->isEmpty())>Guardar ingreso</button>
         </div>
     </form>
     @endif

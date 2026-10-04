@@ -26,6 +26,19 @@ class CompraTarjeta extends Model
         return $this->hasMany(CuotaTarjeta::class, 'compra_tarjeta_id')->orderBy('numero');
     }
 
+    public function getEstaLiquidadaAttribute(): bool
+    {
+        if ($this->anulada) {
+            return false;
+        }
+
+        $cuotas = $this->relationLoaded('cuotasProgramadas')
+            ? $this->cuotasProgramadas
+            : $this->cuotasProgramadas()->get();
+
+        return $cuotas->isNotEmpty() && $cuotas->every(fn (CuotaTarjeta $c) => (bool) $c->pagada);
+    }
+
     public function tarjetaCredito(): BelongsTo
     {
         return $this->belongsTo(TarjetaCredito::class, 'tarjeta_credito_id');

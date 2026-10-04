@@ -148,7 +148,16 @@ if ($) {
             const filtro = $boton.attr('data-mov-filter');
             $list.find('[data-mov-tipo]').each(function () {
                 const tipo = this.getAttribute('data-mov-tipo');
-                this.hidden = filtro !== 'todos' && tipo !== filtro;
+                const grupo = this.getAttribute('data-mov-grupo') || '';
+                if (filtro === 'todos') {
+                    this.hidden = false;
+                    return;
+                }
+                if (filtro === 'aporte_meta') {
+                    this.hidden = grupo !== 'meta' && tipo !== 'aporte_meta' && tipo !== 'retiro_meta';
+                    return;
+                }
+                this.hidden = tipo !== filtro;
             });
         });
     });

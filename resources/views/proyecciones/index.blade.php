@@ -18,7 +18,7 @@
             </div>
             <div class="projection-row"><span>Ingresos esperados</span><strong class="text-success">@cop($mes['ingresos_centavos'])</strong></div>
             <div class="projection-row"><span>Gastos esperados</span><strong class="text-danger">@cop($mes['gastos_centavos'])</strong></div>
-            <div class="projection-row"><span>Deudas (cuotas)</span><strong class="text-warning">@cop($mes['deudas_centavos'])</strong></div>
+            <div class="projection-row"><span>Deudas y extractos</span><strong class="text-warning">@cop($mes['deudas_centavos'])</strong></div>
             <div class="projection-row"><span>Aportes a metas (plan neto)</span><strong class="text-warning">@cop($mes['metas_centavos'] ?? 0)</strong></div>
             <div class="projection-row projection-total">
                 <span>Residual del mes</span>
@@ -30,8 +30,8 @@
     @endforeach
 </div>
 <p class="small text-secondary mt-4 mb-0">
-    El residual es ingresos − gastos − cuotas − metas del mes; <strong>no</strong> incluye el saldo de tus cuentas.
-    En el mes actual, las cuotas vencidas impagas se arrastran aquí. El “disponible” de Situación parte de liquidez libre y resta los mismos compromisos.
+    El residual es ingresos − gastos − cuotas/extractos − metas del mes; <strong>no</strong> incluye el saldo de tus cuentas.
+    En el mes actual, las obligaciones vencidas impagas se arrastran aquí. El “disponible” de Situación parte de liquidez libre y resta los mismos compromisos.
     Las recurrencias siguen la misma semántica que el calendario (<code>unico</code>, <code>anual</code>, cobertura por monto).
 </p>
 @endsection

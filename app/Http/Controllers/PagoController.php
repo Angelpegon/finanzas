@@ -105,18 +105,23 @@ class PagoController extends Controller
 
         $tarjetas = TarjetaCredito::query()
             ->where('activa', true)
-            ->with('cicloAbierto')
+            ->with(['cicloAbierto', 'cuentaContable'])
             ->orderBy('nombre')
             ->get()
-            ->filter(fn (TarjetaCredito $tarjeta) => $tarjeta->cicloAbierto && $tarjeta->pago_total_centavos > 0)
+            ->filter(fn (TarjetaCredito $tarjeta) => (int) $tarjeta->saldo_actual_centavos > 0)
             ->map(function (TarjetaCredito $tarjeta) {
+                $ciclo = $tarjeta->cicloAbierto;
+                $extracto = $ciclo ? $ciclo->restanteCentavos() : 0;
+
                 return (object) [
                     'id' => (int) $tarjeta->id,
                     'nombre' => (string) $tarjeta->nombre,
                     'entidad' => $tarjeta->entidad,
-                    'minimo_centavos' => $tarjeta->pago_minimo_centavos,
-                    'total_centavos' => $tarjeta->pago_total_centavos,
-                    'fecha_pago' => $tarjeta->cicloAbierto?->fecha_pago?->format('d/m/Y'),
+                    'minimo_centavos' => $extracto > 0 ? $tarjeta->pago_minimo_centavos : (int) $tarjeta->saldo_actual_centavos,
+                    'total_centavos' => $extracto > 0 ? $tarjeta->pago_total_centavos : (int) $tarjeta->saldo_actual_centavos,
+                    'saldo_centavos' => (int) $tarjeta->saldo_actual_centavos,
+                    'fecha_pago' => $ciclo?->fecha_pago?->format('d/m/Y'),
+                    'tiene_extracto' => $extracto > 0,
                 ];
             })
             ->values();
@@ -176,7 +181,7 @@ class PagoController extends Controller
                     $d['fecha'],
                     Dinero::pesosACentavos($d['monto'])
                 );
-                $mensaje = 'Pago del extracto registrado.';
+                $mensaje = 'Pago de tarjeta registrado.';
             } else {
                 $pagos->registrar(
                     $usuarioId,

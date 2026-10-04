@@ -5,8 +5,8 @@ namespace App\Services;
 use App\Enums\NaturalezaCuenta;
 use App\Models\CuentaContable;
 use App\Models\CuentaLiquida;
+use App\Models\CicloFacturacion;
 use App\Models\CuotaPrestamo;
-use App\Models\CuotaTarjeta;
 use App\Models\HechoTesoreria;
 use App\Models\Pago;
 use App\Models\Prestamo;
@@ -82,13 +82,8 @@ class SituacionFinancieraService
         $pagosDeudaMes = (int) Pago::withoutGlobalScopes()->where('usuario_id', $usuarioId)
             ->whereIn('tipo', ['prestamo', 'credito', 'tarjeta'])->whereBetween('fecha', [$inicio, $fin])->sum('monto_centavos');
 
-        $cuotasProximas = CuotaPrestamo::withoutGlobalScopes()->where('usuario_id', $usuarioId)->where('pagada', false)
-            ->whereBetween('fecha_vencimiento', [$fecha->copy()->startOfDay(), $fecha->copy()->addDays(30)->endOfDay()])
-            ->with('prestamo')->orderBy('fecha_vencimiento')->limit(10)->get();
-        $cuotasTarjeta = CuotaTarjeta::withoutGlobalScopes()->where('usuario_id', $usuarioId)->where('pagada', false)
-            ->whereBetween('fecha_vencimiento', [$fecha->copy()->startOfDay(), $fecha->copy()->addDays(30)->endOfDay()])
-            ->with(['compra.tarjetaCredito'])->orderBy('fecha_vencimiento')->limit(10)->get();
-        $pagosProximos = $cuotasProximas->concat($cuotasTarjeta)->sortBy('fecha_vencimiento')->values();
+        // Siempre anclado a hoy: el bloque UI dice "Próximos", no "del mes visto".
+        $pagosProximos = $this->proximosVencimientos($usuarioId, now());
 
         $presupuesto = Presupuesto::with('lineas.categoria')->withoutGlobalScopes()
             ->where('usuario_id', $usuarioId)->where('anio', $fecha->year)->where('mes', $fecha->month)->first();
@@ -259,7 +254,7 @@ class SituacionFinancieraService
 
         $movimientos = HechoTesoreria::withoutGlobalScopes()
             ->where('usuario_id', $usuarioId)
-            ->whereIn('tipo', ['ingreso', 'gasto', 'transferencia', 'aporte_meta'])
+            ->whereIn('tipo', ['ingreso', 'gasto', 'transferencia', 'aporte_meta', 'retiro_meta'])
             ->with('categoria')
             ->orderByDesc('fecha')
             ->orderByDesc('id')
@@ -273,8 +268,9 @@ class SituacionFinancieraService
                 'fecha' => $hecho->fecha?->toDateString(),
                 'monto_centavos' => (int) $hecho->monto_centavos,
                 'signo' => match ($hecho->tipo->value) {
-                    'ingreso' => 1,
-                    'transferencia', 'aporte_meta' => 0,
+                    'ingreso', 'retiro_meta' => 1,
+                    'transferencia' => 0,
+                    'gasto', 'aporte_meta' => -1,
                     default => -1,
                 },
             ])->values();
@@ -340,6 +336,78 @@ class SituacionFinancieraService
         }
 
         return round((($actual - $anterior) / abs($anterior)) * 100, 1);
+    }
+
+    /**
+     * Próximos 30 días: cuotas de préstamo + un renglón por extracto de tarjeta
+     * (no cuotas sueltas de compra).
+     *
+     * @return \Illuminate\Support\Collection<int, object{
+     *     nombre: string,
+     *     detalle: string,
+     *     fecha_vencimiento: Carbon,
+     *     total_centavos: int,
+     *     tipo: string
+     * }>
+     */
+    private function proximosVencimientos(int $usuarioId, Carbon $fecha): \Illuminate\Support\Collection
+    {
+        $desde = $fecha->copy()->startOfDay();
+        $hasta = $fecha->copy()->addDays(30)->endOfDay();
+
+        $prestamos = CuotaPrestamo::withoutGlobalScopes()
+            ->where('usuario_id', $usuarioId)
+            ->where('pagada', false)
+            ->whereBetween('fecha_vencimiento', [$desde, $hasta])
+            ->with('prestamo')
+            ->orderBy('fecha_vencimiento')
+            ->get()
+            ->map(function (CuotaPrestamo $cuota) {
+                $total = (int) ($cuota->total_centavos ?: (
+                    (int) $cuota->capital_centavos
+                    + (int) $cuota->interes_centavos
+                    + (int) $cuota->seguro_centavos
+                    + (int) $cuota->otros_cargos_centavos
+                ));
+
+                return (object) [
+                    'nombre' => $cuota->prestamo?->nombre ?? 'Crédito',
+                    'detalle' => 'Cuota '.$cuota->numero,
+                    'fecha_vencimiento' => $cuota->fecha_vencimiento,
+                    'total_centavos' => $total,
+                    'tipo' => 'prestamo',
+                ];
+            });
+
+        $extractos = CicloFacturacion::withoutGlobalScopes()
+            ->where('usuario_id', $usuarioId)
+            ->where('estado', 'abierto')
+            ->whereColumn('pagado_centavos', '<', 'pago_total_centavos')
+            ->whereBetween('fecha_pago', [$desde, $hasta])
+            ->with('tarjetaCredito')
+            ->orderBy('fecha_pago')
+            ->get()
+            ->map(function (CicloFacturacion $ciclo) {
+                $restante = $ciclo->restanteCentavos();
+                if ($restante <= 0) {
+                    return null;
+                }
+
+                return (object) [
+                    'nombre' => $ciclo->tarjetaCredito?->nombre ?? 'Tarjeta',
+                    'detalle' => 'Extracto',
+                    'fecha_vencimiento' => $ciclo->fecha_pago,
+                    'total_centavos' => $restante,
+                    'tipo' => 'tarjeta',
+                ];
+            })
+            ->filter();
+
+        return $prestamos
+            ->concat($extractos)
+            ->sortBy(fn ($item) => $item->fecha_vencimiento->timestamp)
+            ->values()
+            ->take(10);
     }
 
     /**
@@ -412,7 +480,7 @@ class SituacionFinancieraService
                 'estado' => 'activa',
                 'saldo_centavos' => $saldo,
                 'principal_centavos' => $cupo,
-                'avance_porcentaje' => $cupo > 0 ? round((1 - ($saldo / $cupo)) * 100, 1) : 0,
+                'avance_porcentaje' => $cupo > 0 ? round(($saldo / $cupo) * 100, 1) : 0,
                 'cuota_centavos' => $ciclo ? $ciclo->minimoRestanteCentavos() : 0,
                 'ea_porcentaje' => (float) $tarjeta->ea_porcentaje,
                 'cuotas_pagadas' => null,

@@ -42,7 +42,7 @@
             </div>
             <div class="cal-summary__item">
                 <span>Salidas reales</span>
-                <strong>@cop($resumen['salidas_centavos'])</strong>
+                <strong class="text-danger">@cop($resumen['salidas_centavos'])</strong>
             </div>
             <div class="cal-summary__item">
                 <span>Compromisos</span>
@@ -115,7 +115,7 @@
                         $iconoEvento = match ($evento['tipo']) {
                             'ingreso' => 'arrow-up',
                             'gasto' => 'arrow-down',
-                            'pago', 'cuota' => 'banknote',
+                            'pago', 'cuota', 'extracto', 'manejo' => 'banknote',
                             'corte' => 'credit-card',
                             'aporte_meta', 'retiro_meta' => 'piggy-bank',
                             default => 'circle',
@@ -138,7 +138,14 @@
                                         {{ $evento['descripcion'] }}
                                     @endif
                                 </h3>
-                                <strong class="{{ $evento['tipo'] === 'ingreso' ? 'text-success' : '' }}">
+                                @php
+                                    $claseMonto = match ($evento['tipo']) {
+                                        'ingreso', 'retiro_meta' => 'text-success',
+                                        'gasto', 'pago', 'cuota', 'extracto', 'manejo', 'aporte_meta' => 'text-danger',
+                                        default => 'text-secondary',
+                                    };
+                                @endphp
+                                <strong class="{{ $claseMonto }}">
                                     @if($evento['monto_centavos'] > 0)@cop($evento['monto_centavos'])@else — @endif
                                 </strong>
                             </div>

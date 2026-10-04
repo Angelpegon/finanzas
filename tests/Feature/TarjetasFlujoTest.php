@@ -364,4 +364,133 @@ class TarjetasFlujoTest extends TestCase
             ])
             ->assertSessionHasErrorsIn('pago_tarjeta', ['monto']);
     }
+
+    public function test_editar_fechas_reprograma_cuotas_no_facturadas_y_extracto_abierto(): void
+    {
+        $this->withoutVite();
+        $this->travelTo(Carbon::parse('2026-03-02'));
+        $usuario = $this->usuarioConCatalogo();
+        $cuenta = CuentaLiquida::where('usuario_id', $usuario->id)->firstOrFail();
+        $this->fondear($usuario, $cuenta);
+        $cat = Categoria::where('usuario_id', $usuario->id)->where('tipo', 'gasto')->firstOrFail();
+
+        $this->actingAs($usuario)->post(route('app.tarjetas.store'), $this->payloadCrear())->assertRedirect();
+        $tarjeta = TarjetaCredito::where('usuario_id', $usuario->id)->firstOrFail();
+        $this->actingAs($usuario)->post(route('app.tarjetas.compras.store'), [
+            'tarjeta_credito_id' => $tarjeta->id,
+            'tipo' => 'compra',
+            'descripcion' => 'Mueble',
+            'monto' => '300000',
+            'fecha' => '2026-03-02',
+            'categoria_id' => $cat->id,
+            'cuotas' => '3',
+            'idempotency_key' => (string) Str::uuid(),
+        ])->assertRedirect();
+
+        $this->travelTo(Carbon::parse('2026-03-12'));
+        $this->actingAs($usuario)->get(route('app.tarjetas.index'))->assertOk();
+        $ciclo = \App\Models\CicloFacturacion::where('tarjeta_credito_id', $tarjeta->id)->where('estado', 'abierto')->firstOrFail();
+        $corteOriginal = $ciclo->fecha_corte->toDateString();
+        $this->assertSame('2026-03-25', $ciclo->fecha_pago->toDateString());
+
+        $cuota1 = CuotaTarjeta::where('tarjeta_credito_id', $tarjeta->id)->where('numero', 1)->firstOrFail();
+        $this->assertNotNull($cuota1->ciclo_facturacion_id);
+        $vencimientoFacturada = $cuota1->fecha_vencimiento->toDateString();
+        $cuota2Antes = CuotaTarjeta::where('tarjeta_credito_id', $tarjeta->id)->where('numero', 2)->value('fecha_vencimiento');
+
+        $this->actingAs($usuario)
+            ->put(route('app.tarjetas.update', $tarjeta), [
+                'nombre' => 'Visa Editada',
+                'entidad' => 'Banco Nuevo',
+                'cupo' => '2500000',
+                'tasa_compras_mensual' => '2.8',
+                'tasa_avances_mensual' => '3.8',
+                'tasa_mora_mensual' => '0',
+                'porcentaje_abono_capital_minimo' => '5',
+                'cuota_manejo' => '0',
+                'dia_corte' => '10',
+                'dia_pago' => '28',
+            ])
+            ->assertSessionHasNoErrors()
+            ->assertRedirect(route('app.tarjetas.index'));
+
+        $tarjeta->refresh();
+        $this->assertSame(28, (int) $tarjeta->dia_pago);
+        $ciclo->refresh();
+        $this->assertSame($corteOriginal, $ciclo->fecha_corte->toDateString());
+        $this->assertSame('2026-03-28', $ciclo->fecha_pago->toDateString());
+        $this->assertSame($vencimientoFacturada, $cuota1->fresh()->fecha_vencimiento->toDateString());
+
+        $cuota2 = CuotaTarjeta::where('tarjeta_credito_id', $tarjeta->id)->where('numero', 2)->firstOrFail();
+        $this->assertNull($cuota2->ciclo_facturacion_id);
+        $this->assertNotSame(
+            Carbon::parse($cuota2Antes)->toDateString(),
+            $cuota2->fecha_vencimiento->toDateString()
+        );
+        $this->assertSame('2026-04-28', $cuota2->fecha_vencimiento->toDateString());
+
+        $this->actingAs($usuario)
+            ->from(route('app.tarjetas.edit', $tarjeta))
+            ->put(route('app.tarjetas.update', $tarjeta), [
+                'nombre' => 'Visa Editada',
+                'entidad' => 'Banco Nuevo',
+                'cupo' => '100000',
+                'tasa_compras_mensual' => '2.8',
+                'tasa_avances_mensual' => '3.8',
+                'porcentaje_abono_capital_minimo' => '5',
+                'dia_corte' => '10',
+                'dia_pago' => '28',
+            ])
+            ->assertSessionHasErrors(['cupo']);
+    }
+
+    public function test_compra_liquidada_se_muestra_y_no_se_anula(): void
+    {
+        $this->withoutVite();
+        $this->travelTo(Carbon::parse('2026-03-02'));
+        $usuario = $this->usuarioConCatalogo();
+        $cuenta = CuentaLiquida::where('usuario_id', $usuario->id)->firstOrFail();
+        $this->fondear($usuario, $cuenta);
+        $cat = Categoria::where('usuario_id', $usuario->id)->where('tipo', 'gasto')->firstOrFail();
+
+        $this->actingAs($usuario)->post(route('app.tarjetas.store'), $this->payloadCrear())->assertRedirect();
+        $tarjeta = TarjetaCredito::where('usuario_id', $usuario->id)->firstOrFail();
+        $this->actingAs($usuario)->post(route('app.tarjetas.compras.store'), [
+            'tarjeta_credito_id' => $tarjeta->id,
+            'tipo' => 'compra',
+            'descripcion' => 'Celular',
+            'monto' => '90000',
+            'fecha' => '2026-03-02',
+            'categoria_id' => $cat->id,
+            'cuotas' => '1',
+            'idempotency_key' => (string) Str::uuid(),
+        ])->assertRedirect();
+
+        $compra = CompraTarjeta::where('tarjeta_credito_id', $tarjeta->id)->firstOrFail();
+        $this->assertFalse($compra->esta_liquidada);
+
+        $this->travelTo(Carbon::parse('2026-03-12'));
+        $this->actingAs($usuario)->post(route('app.tarjetas.pagos.store'), [
+            'tarjeta_credito_id' => $tarjeta->id,
+            'cuenta_liquida_id' => $cuenta->id,
+            'monto' => '90000',
+            'fecha' => '2026-03-12',
+            'idempotency_key' => (string) Str::uuid(),
+        ])->assertSessionHasNoErrors()->assertRedirect();
+
+        $compra->refresh();
+        $compra->load('cuotasProgramadas');
+        $this->assertTrue($compra->esta_liquidada);
+        $this->assertSame(0, $tarjeta->fresh()->saldo_actual_centavos);
+
+        $html = $this->actingAs($usuario)->get(route('app.tarjetas.index'))->assertOk()->getContent();
+        $this->assertStringNotContainsString('Celular', $html);
+        $this->assertStringContainsString('liquidada', $html);
+
+        $this->actingAs($usuario)
+            ->post(route('app.tarjetas.compras.corregir', $compra), [
+                'motivo' => 'No debería',
+            ])
+            ->assertSessionHasErrors();
+    }
 }

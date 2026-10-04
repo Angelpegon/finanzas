@@ -56,6 +56,8 @@ Route::middleware('auth')->group(function (): void {
     Route::get('/tarjetas', [TarjetaController::class, 'index'])->name('app.tarjetas.index');
     Route::get('/tarjetas/crear', [TarjetaController::class, 'create'])->name('app.tarjetas.create');
     Route::post('/tarjetas', [TarjetaController::class, 'store'])->name('app.tarjetas.store');
+    Route::get('/tarjetas/{tarjeta}/editar', [TarjetaController::class, 'edit'])->name('app.tarjetas.edit');
+    Route::put('/tarjetas/{tarjeta}', [TarjetaController::class, 'update'])->name('app.tarjetas.update');
     Route::post('/tarjetas/compras', [TarjetaController::class, 'compra'])->name('app.tarjetas.compras.store');
     Route::post('/tarjetas/compras/{compra}/corregir', [TarjetaController::class, 'corregirCompra'])->name('app.tarjetas.compras.corregir');
     Route::post('/tarjetas/pagos', [TarjetaController::class, 'pagar'])->name('app.tarjetas.pagos.store');

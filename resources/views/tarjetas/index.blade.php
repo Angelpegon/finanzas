@@ -1,7 +1,7 @@
 @extends('layouts.app', [
     'title' => 'Tarjetas',
     'heading' => 'Mis tarjetas',
-    'subtitle' => 'El banco cobra un extracto al corte. El mínimo evita la mora; el total evita que las compras corrientes roten.',
+    'subtitle' => 'Extracto al corte; puedes abonar en cualquier momento hasta el saldo total. El exceso adelanta capital del diferido.',
 ])
 @section('content')
 @php
@@ -11,7 +11,9 @@
     $tipoMov = $oldCompra ? old('tipo', 'compra') : 'compra';
 @endphp
 
+@include('layouts.partials.form-errors')
 @include('layouts.partials.form-errors', ['bag' => 'pago_tarjeta'])
+@include('layouts.partials.form-errors', ['bag' => 'compra'])
 
 <div class="page-toolbar">
     <a class="btn btn-primary btn-lg" href="{{ route('app.tarjetas.create') }}">
@@ -36,6 +38,7 @@
                         <div class="account-card__title">
                             <h2>{{ $tarjeta->nombre }}</h2>
                             <small>{{ $tarjeta->entidad ?: 'Tarjeta de crédito' }}</small>
+                            <a class="small d-inline-block mt-1" href="{{ route('app.tarjetas.edit', $tarjeta) }}">Editar cupo, fechas o tasas</a>
                         </div>
                         <strong class="account-card__amount">@cop($tarjeta->saldo_actual_centavos)</strong>
                     </div>
@@ -47,24 +50,33 @@
                         Corte día {{ $tarjeta->dia_corte }} · Pago día {{ $tarjeta->dia_pago }}
                         · Compras {{ number_format((float) $tarjeta->tasa_compras_mensual, 2, ',', '.') }}%
                         · Avances {{ number_format((float) $tarjeta->tasa_avances_mensual, 2, ',', '.') }}%
+                        @if((int) $tarjeta->cuota_manejo_centavos > 0)
+                            · Manejo @cop($tarjeta->cuota_manejo_centavos)/corte
+                        @endif
                     </div>
                     @php $ciclo = $tarjeta->cicloAbierto; @endphp
                     <div class="small text-secondary mt-1">
+                        Saldo total <strong>@cop($tarjeta->saldo_actual_centavos)</strong>
                         @if($ciclo && $ciclo->restanteCentavos() > 0)
-                            Extracto al {{ $ciclo->fecha_pago->format('d/m/Y') }}
+                            · extracto al {{ $ciclo->fecha_pago->format('d/m/Y') }}
                             · mínimo <strong>@cop($ciclo->minimoRestanteCentavos())</strong>
-                            · total <strong>@cop($ciclo->restanteCentavos())</strong>
+                            · total extracto <strong>@cop($ciclo->restanteCentavos())</strong>
                         @else
-                            Sin extracto pendiente.
+                            · sin extracto pendiente
                         @endif
                     </div>
                 </div>
             </div>
             <div class="account-card__footer">
-                @if($ciclo && $ciclo->restanteCentavos() > 0)
+                @if($tarjeta->saldo_actual_centavos > 0)
                 @php
                     $estePago = $errPagoTarjeta->any() && (int) old('tarjeta_credito_id') === (int) $tarjeta->id;
-                    $montoPago = $estePago ? old('monto', $ciclo->minimoRestanteCentavos() / 100) : ($ciclo->minimoRestanteCentavos() / 100);
+                    $montoDefault = ($ciclo && $ciclo->minimoRestanteCentavos() > 0)
+                        ? $ciclo->minimoRestanteCentavos() / 100
+                        : ($ciclo && $ciclo->restanteCentavos() > 0
+                            ? $ciclo->restanteCentavos() / 100
+                            : $tarjeta->saldo_actual_centavos / 100);
+                    $montoPago = $estePago ? old('monto', $montoDefault) : $montoDefault;
                 @endphp
                 <form method="POST" action="{{ route('app.tarjetas.pagos.store') }}" class="d-flex flex-wrap align-items-center gap-1 mb-2" novalidate>
                     @csrf
@@ -73,38 +85,60 @@
                     <input type="hidden" name="fecha" value="{{ now()->toDateString() }}">
                     <input name="monto" data-miles inputmode="decimal" value="{{ $montoPago }}"
                         class="form-control form-control-sm d-inline-block @if($estePago) @error('monto', 'pago_tarjeta') is-invalid @enderror @endif"
-                        style="width: 7.5rem" title="Mínimo evita mora; total evita rotación" required>
-                    <select name="cuenta_liquida_id" class="form-select form-select-sm d-inline-block w-auto @if($estePago) @error('cuenta_liquida_id', 'pago_tarjeta') is-invalid @enderror @endif" required>
-                        <option value="">Cuenta</option>
-                        @foreach($cuentas as $cuenta)
-                            <option value="{{ $cuenta->id }}" @selected($estePago && old('cuenta_liquida_id') == $cuenta->id)>{{ $cuenta->nombre }}</option>
-                        @endforeach
+                        style="width: 7.5rem" title="Hasta el saldo total. Primero el extracto; el exceso adelanta capital" required>
+                    <select name="cuenta_liquida_id" class="form-select form-select-sm d-inline-block w-auto @if($estePago) @error('cuenta_liquida_id', 'pago_tarjeta') is-invalid @enderror @endif" required @disabled($cuentas->isEmpty())>
+                        @if($cuentas->isEmpty())
+                            <option value="">Sin cuentas</option>
+                        @else
+                            <option value="">Cuenta</option>
+                            @foreach($cuentas as $cuenta)
+                                <option value="{{ $cuenta->id }}" @selected($estePago && old('cuenta_liquida_id') == $cuenta->id)>{{ $cuenta->nombre }}</option>
+                            @endforeach
+                        @endif
                     </select>
-                    <button class="card-btn card-btn--primary" type="submit">
+                    <button class="card-btn card-btn--primary" type="submit" @disabled($cuentas->isEmpty())>
                         @include('layouts.partials.icon', ['name' => 'money', 'class' => 'ui-icon ui-icon--xs'])
-                        Pagar extracto
+                        Pagar
                     </button>
                     @if($estePago)
                         @include('layouts.partials.field-error', ['name' => 'monto', 'bag' => 'pago_tarjeta'])
                         @include('layouts.partials.field-error', ['name' => 'cuenta_liquida_id', 'bag' => 'pago_tarjeta'])
                     @endif
                 </form>
+                @if($ciclo && $ciclo->restanteCentavos() > 0)
                 <p class="small text-secondary mb-2">
                     Rotativo @cop($ciclo->capital_rotativo_centavos)
                     · diferido del mes @cop($ciclo->capital_diferido_centavos)
                     · intereses @cop((int) $ciclo->interes_rotativo_centavos + (int) $ciclo->interes_diferido_centavos)
                     · mora @cop($ciclo->interes_mora_centavos)
-                    · cargos @cop($ciclo->cargos_centavos)
+                    · cuota de manejo / cargos @cop($ciclo->cargos_centavos)
                     · ya pagado @cop($ciclo->pagado_centavos)
                 </p>
+                @else
+                <p class="small text-secondary mb-2">Sin extracto abierto: el pago es abono a capital. En diferido se adelantan las próximas cuotas y se condona su interés programado.</p>
                 @endif
+                @endif
+                @php
+                    $comprasVivas = $tarjeta->compras
+                        ->where('anulada', false)
+                        ->filter(fn ($compra) => ! $compra->esta_liquidada)
+                        ->values();
+                    $comprasLiquidadas = $tarjeta->compras
+                        ->where('anulada', false)
+                        ->filter(fn ($compra) => $compra->esta_liquidada)
+                        ->count();
+                @endphp
+                @if($comprasVivas->isNotEmpty() || $comprasLiquidadas > 0)
                 <details @if($errPagoTarjeta->any() && (int) old('tarjeta_credito_id') === (int) $tarjeta->id) open @endif>
                     <summary class="small">Ver compras y plan de diferidos</summary>
                     <div class="table-responsive mt-2">
+                        @if($comprasVivas->isEmpty())
+                            <p class="small text-secondary mb-0">No hay compras pendientes. {{ $comprasLiquidadas }} liquidada{{ $comprasLiquidadas === 1 ? '' : 's' }} oculta{{ $comprasLiquidadas === 1 ? '' : 's' }}.</p>
+                        @else
                         <table class="table table-sm small mb-0">
                             <thead><tr><th>Movimiento</th><th>Fecha</th><th>Monto</th><th>Cuotas</th></tr></thead>
                             <tbody>
-                            @foreach($tarjeta->compras->where('anulada', false) as $compra)
+                            @foreach($comprasVivas as $compra)
                                 <tr>
                                     <td>
                                         {{ $compra->descripcion }}
@@ -137,8 +171,13 @@
                             @endforeach
                             </tbody>
                         </table>
+                        @if($comprasLiquidadas > 0)
+                            <p class="small text-secondary mt-2 mb-0">{{ $comprasLiquidadas }} compra{{ $comprasLiquidadas === 1 ? '' : 's' }} liquidada{{ $comprasLiquidadas === 1 ? '' : 's' }} oculta{{ $comprasLiquidadas === 1 ? '' : 's' }}.</p>
+                        @endif
+                        @endif
                     </div>
                 </details>
+                @endif
             </div>
         </article>
         @empty
@@ -261,12 +300,12 @@
                                     @if($corregido)<s>@endif @cop($pago->monto_centavos) @if($corregido)</s>@endif
                                 </strong>
                             </div>
-                            @if(! $corregido && $esUltimo && $pago->ciclo_facturacion_id)
+                            @if(! $corregido && $esUltimo && ($pago->ciclo_facturacion_id || $pago->extraordinario))
                                 <div class="account-card__actions mt-2">
                                     <form method="POST" action="{{ route('app.tarjetas.pagos.corregir', $pago) }}" class="d-inline"
                                         data-swal-confirm
                                         data-swal-title="¿Corregir este pago?"
-                                        data-swal-text="Se registra un reverso en el libro y se reabre el extracto."
+                                        data-swal-text="{{ $pago->ciclo_facturacion_id ? 'Se registra un reverso en el libro y se reabre el extracto.' : 'Se registra un reverso en el libro y se deshace el abono extraordinario.' }}"
                                         data-swal-icon="warning"
                                         data-swal-confirm-text="Corregir">
                                         @csrf

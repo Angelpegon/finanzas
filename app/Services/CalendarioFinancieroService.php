@@ -96,9 +96,12 @@ class CalendarioFinancieroService
         $eventosExtracto = app(ExtractoTarjetaService::class)->eventos($usuarioId, $inicio, $fin);
         foreach ($eventosExtracto as $extracto) {
             $fechaExtracto = Carbon::parse($extracto['fecha'])->startOfDay();
+            $tipoEvento = str_starts_with($extracto['descripcion'], 'Cuota de manejo')
+                ? 'manejo'
+                : 'extracto';
             $eventos->push($this->evento(
                 $fechaExtracto,
-                'cuota',
+                $tipoEvento,
                 $fechaExtracto->lt($hoy) ? 'vencido' : 'proyectado',
                 (int) $extracto['monto_centavos'],
                 $extracto['descripcion'],
@@ -158,7 +161,7 @@ class CalendarioFinancieroService
                     ->reject(fn ($e) => ($e['tipo'] ?? '') === 'corte')
                     ->sum('monto_centavos'),
                 'tiene_pago' => collect($eventosDia)->contains(
-                    fn ($e) => in_array($e['tipo'], ['cuota', 'pago', 'gasto'], true)
+                    fn ($e) => in_array($e['tipo'], ['cuota', 'extracto', 'manejo', 'pago', 'gasto'], true)
                 ),
                 'tiene_ingreso' => collect($eventosDia)->contains(fn ($e) => $e['tipo'] === 'ingreso'),
                 'tiene_vencido' => collect($eventosDia)->contains(fn ($e) => ($e['estado'] ?? '') === 'vencido'),
@@ -191,9 +194,9 @@ class CalendarioFinancieroService
     {
         $col = collect($eventos);
         $esSalidaReal = fn (array $e): bool => ($e['estado'] ?? '') === 'real'
-            && in_array($e['tipo'], ['gasto', 'pago'], true);
+            && in_array($e['tipo'], ['gasto', 'pago', 'aporte_meta'], true);
         $esSalidaProyectada = fn (array $e): bool => in_array($e['estado'] ?? '', ['proyectado', 'vencido'], true)
-            && in_array($e['tipo'], ['gasto', 'cuota'], true);
+            && in_array($e['tipo'], ['gasto', 'cuota', 'extracto', 'manejo'], true);
 
         return [
             'reales' => $col->where('estado', 'real')->count(),

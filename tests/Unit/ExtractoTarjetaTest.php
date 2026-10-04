@@ -18,7 +18,7 @@ class ExtractoTarjetaTest extends TestCase
 {
     use CreaUsuarioConCatalogo;
 
-    public function test_diferido_solo_exige_la_cuota_del_mes_y_rechaza_prepago(): void
+    public function test_diferido_solo_exige_la_cuota_del_mes_y_el_exceso_adelanta(): void
     {
         [$user, $cuenta, $cat] = $this->base();
         $tarjeta = app(TarjetaService::class)->crear($user->id, 'Visa', 2_000_000_00, 10, 25, 2.5, 3.5);
@@ -34,13 +34,83 @@ class ExtractoTarjetaTest extends TestCase
         $cuotas = CuotaTarjeta::withoutGlobalScopes()->where('tarjeta_credito_id', $tarjeta->id)->orderBy('numero')->get();
         $this->assertTrue($cuotas[0]->pagada);
         $this->assertFalse($cuotas[1]->pagada);
-        $this->assertSame((int) $cuotas[2]->capital_centavos, (int) $cuotas[2]->fresh()->capital_centavos);
         $this->assertNotNull($pago->ciclo_facturacion_id);
 
-        $this->expectException(\InvalidArgumentException::class);
-        app(TarjetaService::class)->registrarPago(
-            $user->id, $tarjeta->id, $cuenta->id, null, '2026-03-12', 50_000_00
+        $capital2 = (int) $cuotas[1]->capital_centavos;
+        $interes2 = (int) $cuotas[1]->interes_centavos;
+        $pasivoAntes = $tarjeta->fresh()->saldo_actual_centavos;
+        $extra = app(TarjetaService::class)->registrarPago(
+            $user->id, $tarjeta->id, $cuenta->id, null, '2026-03-12', $capital2
         );
+
+        $this->assertTrue($extra->extraordinario);
+        $this->assertNull($extra->ciclo_facturacion_id);
+        $this->assertSame($capital2, (int) $extra->capital_centavos);
+        $this->assertSame(0, (int) $extra->interes_centavos);
+        $cuota2 = $cuotas[1]->fresh();
+        $this->assertTrue($cuota2->pagada);
+        $this->assertSame($capital2 + $interes2, (int) $cuota2->abonado_centavos);
+        $this->assertSame($pasivoAntes - $capital2, $tarjeta->fresh()->saldo_actual_centavos);
+        $this->assertFalse($cuotas[2]->fresh()->pagada);
+    }
+
+    public function test_abono_antes_del_primer_corte_no_crea_ciclo(): void
+    {
+        [$user, $cuenta, $cat] = $this->base();
+        $tarjeta = app(TarjetaService::class)->crear($user->id, 'Visa', 2_000_000_00, 10, 25, 2.5, 3.5);
+        app(TarjetaService::class)->registrarCompra(
+            $user->id, $tarjeta->id, 300_000_00, 3, '2026-03-02', 'compra', $cat->id
+        );
+
+        $cuotas = CuotaTarjeta::withoutGlobalScopes()->where('tarjeta_credito_id', $tarjeta->id)->orderBy('numero')->get();
+        $capital1 = (int) $cuotas[0]->capital_centavos;
+        $pago = app(TarjetaService::class)->registrarPago(
+            $user->id, $tarjeta->id, $cuenta->id, null, '2026-03-05', $capital1
+        );
+
+        $this->assertTrue($pago->extraordinario);
+        $this->assertNull($pago->ciclo_facturacion_id);
+        $this->assertSame(0, CicloFacturacion::withoutGlobalScopes()->where('tarjeta_credito_id', $tarjeta->id)->count());
+        $this->assertTrue($cuotas[0]->fresh()->pagada);
+        $this->assertSame(300_000_00 - $capital1, $tarjeta->fresh()->saldo_actual_centavos);
+    }
+
+    public function test_pago_sobre_el_pasivo_se_rechaza(): void
+    {
+        [$user, $cuenta, $cat] = $this->base();
+        $tarjeta = app(TarjetaService::class)->crear($user->id, 'Visa', 2_000_000_00, 10, 25, 2.5, 3.5);
+        app(TarjetaService::class)->registrarCompra(
+            $user->id, $tarjeta->id, 100_000_00, 1, '2026-03-02', 'compra', $cat->id
+        );
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('El pago supera el saldo de la tarjeta.');
+        app(TarjetaService::class)->registrarPago(
+            $user->id, $tarjeta->id, $cuenta->id, null, '2026-03-05', 100_000_00 + 1
+        );
+    }
+
+    public function test_corregir_abono_extraordinario_sin_ciclo_restaura_cuotas(): void
+    {
+        [$user, $cuenta, $cat] = $this->base();
+        $tarjeta = app(TarjetaService::class)->crear($user->id, 'Visa', 2_000_000_00, 10, 25, 2.5, 3.5);
+        app(TarjetaService::class)->registrarCompra(
+            $user->id, $tarjeta->id, 300_000_00, 3, '2026-03-02', 'compra', $cat->id
+        );
+
+        $cuotas = CuotaTarjeta::withoutGlobalScopes()->where('tarjeta_credito_id', $tarjeta->id)->orderBy('numero')->get();
+        $capital1 = (int) $cuotas[0]->capital_centavos;
+        $pago = app(TarjetaService::class)->registrarPago(
+            $user->id, $tarjeta->id, $cuenta->id, null, '2026-03-05', $capital1
+        );
+        $this->assertTrue($cuotas[0]->fresh()->pagada);
+
+        app(TarjetaService::class)->corregirPago($user->id, (int) $pago->id, '2026-03-05', 'Error de abono');
+
+        $cuota = $cuotas[0]->fresh();
+        $this->assertFalse($cuota->pagada);
+        $this->assertSame(0, (int) $cuota->abonado_centavos);
+        $this->assertSame(300_000_00, $tarjeta->fresh()->saldo_actual_centavos);
     }
 
     public function test_pagar_el_total_conserva_la_gracia_y_el_minimo_la_pierde(): void

@@ -94,7 +94,10 @@
             </div>
             <div class="col-md-3">
                 <label class="form-label small mb-1">Cuenta de pago</label>
-                <select name="cuenta_liquida_id" class="form-select @if($esteForm) @error('cuenta_liquida_id', 'pago_prestamo') is-invalid @enderror @endif">
+                <select name="cuenta_liquida_id" class="form-select @if($esteForm) @error('cuenta_liquida_id', 'pago_prestamo') is-invalid @enderror @endif" required @disabled($cuentasPago->isEmpty())>
+                    @if($cuentasPago->isEmpty())
+                        <option value="">Sin cuentas activas</option>
+                    @endif
                     @foreach($cuentasPago as $cuenta)
                         <option value="{{ $cuenta->id }}" @selected(($esteForm ? old('cuenta_liquida_id', $deuda->cuenta_liquida_id) : $deuda->cuenta_liquida_id) == $cuenta->id)>{{ $cuenta->nombre }}</option>
                     @endforeach
@@ -104,10 +107,13 @@
                 @endif
             </div>
             <div class="col-md-3">
-                <button class="card-btn card-btn--primary card-btn--block" type="submit">
+                <button class="card-btn card-btn--primary card-btn--block" type="submit" @disabled($cuentasPago->isEmpty())>
                     @include('layouts.partials.icon', ['name' => 'money', 'class' => 'ui-icon ui-icon--xs'])
                     Registrar pago
                 </button>
+                @if($cuentasPago->isEmpty())
+                    <small class="text-danger d-block mt-1">Necesitas una <a href="{{ route('app.cuentas.create') }}">cuenta activa</a>.</small>
+                @endif
             </div>
         </form>
         @endif
@@ -152,10 +158,16 @@
                 </div>
                 <strong class="account-card__amount">@cop($deuda->saldo_actual_centavos)</strong>
             </div>
+            @php $cicloTarjeta = $deuda->cicloAbierto; @endphp
             <div class="debt-meta">
                 <span>Cupo @cop($deuda->cupo_centavos)</span>
-                <span>{{ $deuda->cuotas_pendientes }} pendientes</span>
-                <span class="status-pill">{{ ucfirst($deuda->estado) }}</span>
+                @if($cicloTarjeta && $cicloTarjeta->restanteCentavos() > 0)
+                    <span>Extracto @cop($cicloTarjeta->restanteCentavos())</span>
+                    <span>Mín. @cop($cicloTarjeta->minimoRestanteCentavos())</span>
+                @else
+                    <span>Sin extracto pendiente</span>
+                @endif
+                <span class="status-pill">{{ $deuda->activa ? 'Activa' : 'Inactiva' }}</span>
             </div>
             <p class="small text-secondary mb-0 mt-2">Gestiona compras y pagos en <a href="{{ route('app.tarjetas.index') }}">Tarjetas</a>.</p>
         </div>

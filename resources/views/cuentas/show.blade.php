@@ -35,9 +35,16 @@
         </div>
         <div class="dash-list">
             @forelse($hechos as $hecho)
+                @php
+                    $entra = in_array($hecho->tipo->value, ['ingreso', 'apertura'], true)
+                        || ($hecho->tipo->value === 'transferencia' && (int) $hecho->cuenta_destino_id === (int) $cuenta->id)
+                        || ($hecho->tipo->value === 'retiro_meta' && (int) $hecho->cuenta_destino_id === (int) $cuenta->id);
+                    $sale = in_array($hecho->tipo->value, ['gasto', 'cierre', 'aporte_meta'], true)
+                        || ($hecho->tipo->value === 'transferencia' && (int) $hecho->cuenta_liquida_id === (int) $cuenta->id);
+                @endphp
                 <div class="dash-list__row">
-                    <span class="dash-list__icon {{ $hecho->tipo->value === 'ingreso' || $hecho->tipo->value === 'apertura' ? 'dash-list__icon--green' : ($hecho->tipo->value === 'gasto' || $hecho->tipo->value === 'cierre' ? 'dash-list__icon--red' : '') }}">
-                        @include('layouts.partials.icon', ['name' => $hecho->tipo->value === 'ingreso' || $hecho->tipo->value === 'apertura' ? 'arrow-up' : ($hecho->tipo->value === 'transferencia' || $hecho->tipo->value === 'aporte_meta' ? 'exchange' : 'arrow-down'), 'class' => 'ui-icon ui-icon--sm'])
+                    <span class="dash-list__icon {{ $entra ? 'dash-list__icon--green' : ($sale ? 'dash-list__icon--red' : '') }}">
+                        @include('layouts.partials.icon', ['name' => $entra ? 'arrow-up' : ($hecho->tipo->value === 'transferencia' || $hecho->tipo->value === 'aporte_meta' || $hecho->tipo->value === 'retiro_meta' ? 'exchange' : 'arrow-down'), 'class' => 'ui-icon ui-icon--sm'])
                     </span>
                     <div class="dash-list__body">
                         <strong>{{ $hecho->descripcion ?: ucfirst(str_replace('_', ' ', $hecho->tipo->value)) }}</strong>
@@ -47,7 +54,9 @@
                             · {{ $hecho->fecha?->format('d/m/Y') }}
                         </small>
                     </div>
-                    <strong class="dash-list__amount">@cop($hecho->monto_centavos)</strong>
+                    <strong class="dash-list__amount {{ $entra ? 'text-success' : ($sale ? 'text-danger' : '') }}">
+                        {{ $entra ? '+' : ($sale ? '-' : '') }}@cop($hecho->monto_centavos)
+                    </strong>
                 </div>
             @empty
                 <p class="text-secondary mb-0">Sin movimientos de tesorería en esta cuenta.</p>
@@ -72,7 +81,7 @@
                             · {{ $pago->fecha?->format('d/m/Y') }}
                         </small>
                     </div>
-                    <strong class="dash-list__amount text-danger">@cop($pago->monto_centavos)</strong>
+                    <strong class="dash-list__amount text-danger">-@cop($pago->monto_centavos)</strong>
                 </div>
             @empty
                 <p class="text-secondary mb-0">Sin pagos desde esta cuenta.</p>

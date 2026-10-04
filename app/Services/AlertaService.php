@@ -31,7 +31,7 @@ class AlertaService
             $alertas[] = $this->crear(
                 'danger',
                 'Pago vencido',
-                "Tienes {$vencidos} cuota(s) vencida(s).",
+                "Tienes {$vencidos} obligación(es) vencida(s) (cuotas o extractos).",
                 $enlaceCalendario
             );
         }
@@ -45,7 +45,7 @@ class AlertaService
             $alertas[] = $this->crear(
                 'warning',
                 'Pago próximo',
-                "Tienes {$proximos} cuota(s) por pagar en los próximos 7 días.",
+                "Tienes {$proximos} obligación(es) por pagar en los próximos 7 días (cuotas o extractos).",
                 $enlaceCalendario
             );
         }

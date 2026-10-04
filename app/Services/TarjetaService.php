@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Asiento;
 use App\Models\Categoria;
+use App\Models\CicloFacturacion;
 use App\Models\CompraTarjeta;
 use App\Models\CuentaContable;
 use App\Models\CuentaLiquida;
@@ -71,6 +72,137 @@ class TarjetaService
                 'activa' => true,
             ]);
         });
+    }
+
+    /**
+     * Actualiza datos de la tarjeta. Cupo no puede bajar del pasivo actual.
+     * Si cambian día de corte o de pago: se recalculan vencimientos de cuotas
+     * aún no facturadas y la fecha límite del extracto abierto. Extractos
+     * ya cerrados y cuotas ya cargadas a un ciclo no se tocan. Las tasas
+     * nuevas solo aplican a compras nuevas y a causaciones de cortes futuros.
+     */
+    public function actualizar(
+        int $usuarioId,
+        int $tarjetaId,
+        string $nombre,
+        int $cupoCentavos,
+        int $diaCorte,
+        int $diaPago,
+        float $tasaComprasMensual,
+        float $tasaAvancesMensual,
+        ?string $entidad = null,
+        float $porcentajeAbonoCapitalMinimo = 5.0,
+        int $cuotaManejoCentavos = 0,
+        float $tasaMoraMensual = 0.0
+    ): TarjetaCredito {
+        if ($cupoCentavos <= 0 || $diaCorte < 1 || $diaCorte > 31 || $diaPago < 1 || $diaPago > 31) {
+            throw new \InvalidArgumentException('Los datos de la tarjeta no son válidos.');
+        }
+        if ($tasaComprasMensual < 0 || $tasaAvancesMensual < 0 || $tasaMoraMensual < 0) {
+            throw new \InvalidArgumentException('Las tasas no pueden ser negativas.');
+        }
+        if ($porcentajeAbonoCapitalMinimo < 0 || $porcentajeAbonoCapitalMinimo > 100 || $cuotaManejoCentavos < 0) {
+            throw new \InvalidArgumentException('El mínimo de capital o la cuota de manejo no son válidos.');
+        }
+
+        return DB::transaction(function () use (
+            $usuarioId, $tarjetaId, $nombre, $cupoCentavos, $diaCorte, $diaPago,
+            $tasaComprasMensual, $tasaAvancesMensual, $entidad,
+            $porcentajeAbonoCapitalMinimo, $cuotaManejoCentavos, $tasaMoraMensual
+        ): TarjetaCredito {
+            $tarjeta = TarjetaCredito::withoutGlobalScopes()
+                ->where('usuario_id', $usuarioId)
+                ->lockForUpdate()
+                ->findOrFail($tarjetaId);
+
+            if (! $tarjeta->activa) {
+                throw new \InvalidArgumentException('La tarjeta no está activa.');
+            }
+
+            $pasivo = $this->saldoPasivoCentavos($tarjeta);
+            if ($cupoCentavos < $pasivo) {
+                throw new \InvalidArgumentException('El cupo no puede ser menor que el saldo actual de la tarjeta.');
+            }
+
+            $cambioCiclo = (int) $tarjeta->dia_corte !== $diaCorte
+                || (int) $tarjeta->dia_pago !== $diaPago;
+
+            $tarjeta->forceFill([
+                'nombre' => $nombre,
+                'cupo_centavos' => $cupoCentavos,
+                'dia_corte' => $diaCorte,
+                'dia_pago' => $diaPago,
+                'tasa_compras_mensual' => $tasaComprasMensual,
+                'tasa_avances_mensual' => $tasaAvancesMensual,
+                'ea_porcentaje' => Tasa::eaDesdeMensual($tasaComprasMensual),
+                'entidad' => $entidad,
+                'porcentaje_abono_capital_minimo' => $porcentajeAbonoCapitalMinimo,
+                'cuota_manejo_centavos' => $cuotaManejoCentavos,
+                'tasa_mora_mensual' => $tasaMoraMensual,
+            ])->save();
+
+            CuentaContable::withoutGlobalScopes()
+                ->where('usuario_id', $usuarioId)
+                ->whereKey((int) $tarjeta->cuenta_contable_id)
+                ->update(['nombre' => 'Tarjeta - '.$nombre]);
+
+            if ($cambioCiclo) {
+                $this->reprogramarFechasDeCiclo($tarjeta->fresh());
+            }
+
+            return $tarjeta->fresh();
+        });
+    }
+
+    /**
+     * Como en el banco al cambiar fecha de pago/corte: mueve la fecha límite
+     * del extracto abierto (sin tocar su corte ni montos) y recalcula
+     * vencimientos de cuotas no facturadas.
+     */
+    private function reprogramarFechasDeCiclo(TarjetaCredito $tarjeta): void
+    {
+        $extracto = app(ExtractoTarjetaService::class);
+
+        $abierto = CicloFacturacion::withoutGlobalScopes()
+            ->where('usuario_id', $tarjeta->usuario_id)
+            ->where('tarjeta_credito_id', $tarjeta->id)
+            ->where('estado', 'abierto')
+            ->lockForUpdate()
+            ->first();
+
+        if ($abierto) {
+            $nuevaFechaPago = $extracto->fechaLimite(
+                $tarjeta,
+                Carbon::parse($abierto->fecha_corte)->startOfDay()
+            );
+            $abierto->forceFill([
+                'fecha_pago' => $nuevaFechaPago->toDateString(),
+            ])->save();
+        }
+
+        $cuotas = CuotaTarjeta::withoutGlobalScopes()
+            ->where('usuario_id', $tarjeta->usuario_id)
+            ->where('tarjeta_credito_id', $tarjeta->id)
+            ->whereNull('ciclo_facturacion_id')
+            ->where('pagada', false)
+            ->with('compra')
+            ->lockForUpdate()
+            ->get();
+
+        foreach ($cuotas as $cuota) {
+            $compra = $cuota->compra;
+            if (! $compra instanceof CompraTarjeta || $compra->anulada) {
+                continue;
+            }
+            $nueva = $extracto->vencimientoCuota(
+                $tarjeta,
+                Carbon::parse($compra->fecha)->startOfDay(),
+                (int) $cuota->numero
+            );
+            $cuota->forceFill([
+                'fecha_vencimiento' => $nueva->toDateString(),
+            ])->save();
+        }
     }
 
     /**

@@ -121,6 +121,42 @@ class TarjetaController extends Controller
         return redirect()->route('app.tarjetas.index')->with('status', 'Tarjeta registrada correctamente.');
     }
 
+    public function edit(TarjetaCredito $tarjeta): View
+    {
+        $this->authorize('update', $tarjeta);
+
+        return view('tarjetas.edit', [
+            'tarjeta' => $tarjeta,
+        ]);
+    }
+
+    public function update(TarjetaRequest $request, TarjetaCredito $tarjeta, TarjetaService $service): RedirectResponse
+    {
+        $this->authorize('update', $tarjeta);
+        $d = $request->validated();
+
+        try {
+            $service->actualizar(
+                (int) Auth::id(),
+                (int) $tarjeta->id,
+                $d['nombre'],
+                Dinero::pesosACentavos($d['cupo']),
+                (int) $d['dia_corte'],
+                (int) $d['dia_pago'],
+                (float) $d['tasa_compras_mensual'],
+                (float) $d['tasa_avances_mensual'],
+                $d['entidad'],
+                (float) $d['porcentaje_abono_capital_minimo'],
+                Dinero::pesosACentavos($d['cuota_manejo'] ?? 0),
+                (float) ($d['tasa_mora_mensual'] ?? 0)
+            );
+        } catch (\InvalidArgumentException $e) {
+            return back()->withErrors(ErrorDominio::aCampo($e, 'cupo'))->withInput();
+        }
+
+        return redirect()->route('app.tarjetas.index')->with('status', 'Tarjeta actualizada.');
+    }
+
     public function compra(CompraTarjetaRequest $request, TarjetaService $service): RedirectResponse
     {
         $d = $request->validated();
@@ -188,7 +224,7 @@ class TarjetaController extends Controller
             throw $e;
         }
 
-        return redirect()->route('app.tarjetas.index')->with('status', 'Pago del extracto registrado.');
+        return redirect()->route('app.tarjetas.index')->with('status', 'Pago de tarjeta registrado.');
     }
 
     public function corregirPago(Request $request, Pago $pago, TarjetaService $service): RedirectResponse
@@ -209,7 +245,7 @@ class TarjetaController extends Controller
             return back()->withErrors(ErrorDominio::aCampo($e, 'form'));
         }
 
-        return redirect()->route('app.tarjetas.index')->with('status', 'Pago corregido (reverso contable). El extracto volvió a quedar pendiente.');
+        return redirect()->route('app.tarjetas.index')->with('status', 'Pago corregido (reverso contable).');
     }
 
     public function corregirCompra(Request $request, CompraTarjeta $compra, TarjetaService $service): RedirectResponse

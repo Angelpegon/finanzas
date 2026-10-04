@@ -170,7 +170,7 @@
                     </div>
                     <p class="small text-secondary mb-3">Los gastos del día a día van en <a
                             href="{{ route('app.gastos.create') }}">Gastos</a>. Las tarjetas se pagan aquí o en <a
-                            href="{{ route('app.tarjetas.index') }}">Tarjetas</a>: el pago cubre el extracto abierto. El mínimo evita la mora; lo que supere el mínimo reduce capital rotativo, sin adelantar cuotas futuras del diferido.</p>
+                            href="{{ route('app.tarjetas.index') }}">Tarjetas</a>: primero el extracto abierto (si hay); el exceso es abono a capital y puede adelantar diferido, condonando el interés programado de esas cuotas.</p>
                     @include('layouts.partials.form-errors', ['bag' => 'pago'])
 
                     <div class="money-hero">
@@ -277,22 +277,29 @@
                                 @if ($esTarjeta) required @endif>
                                 <option value="">Elige la tarjeta</option>
                                 @forelse($tarjetas as $tarjeta)
-                                    <option value="{{ $tarjeta->id }}" data-minimo="{{ $tarjeta->minimo_centavos / 100 }}"
+                                    <option value="{{ $tarjeta->id }}"
+                                        data-minimo="{{ $tarjeta->minimo_centavos / 100 }}"
+                                        data-saldo="{{ $tarjeta->saldo_centavos / 100 }}"
                                         @selected($oldPago && old('tarjeta_credito_id') == $tarjeta->id)>
                                         {{ $tarjeta->nombre }}@if ($tarjeta->entidad)
                                             · {{ $tarjeta->entidad }}
                                         @endif
-                                        — extracto @if($tarjeta->fecha_pago){{ $tarjeta->fecha_pago }} @endif desde @cop($tarjeta->minimo_centavos)
+                                        — saldo @cop($tarjeta->saldo_centavos)
+                                        @if ($tarjeta->tiene_extracto)
+                                            · extracto @if($tarjeta->fecha_pago){{ $tarjeta->fecha_pago }} @endif desde @cop($tarjeta->minimo_centavos)
+                                        @else
+                                            · sin extracto (abono a capital)
+                                        @endif
                                     </option>
                                 @empty
-                                    <option value="" disabled>No hay extractos pendientes. Las compras entran al corte.</option>
+                                    <option value="" disabled>No hay tarjetas con saldo pendiente.</option>
                                 @endforelse
                             </select>
                             @include('layouts.partials.field-error', [
                                 'name' => 'tarjeta_credito_id',
                                 'bag' => 'pago',
                             ])
-                            <p class="small text-secondary mt-1">Aplica al extracto abierto. Entre el mínimo y el total reduces capital rotativo. Por encima del total el sistema rechaza el pago: el diferido futuro no se adelanta aquí.</p>
+                            <p class="small text-secondary mt-1">Tope = saldo total de la tarjeta. Si hay extracto, se cubre primero; el exceso adelanta capital (diferido: próximas cuotas, interés programado condonado).</p>
                         </div>
 
                         <div id="campos-tercero" @if ($esObligacion) hidden @endif>
@@ -494,7 +501,7 @@
                                     <div class="account-card__actions mt-2">
                                         <form method="POST" action="{{ route('app.pagos.corregir', $pago) }}"
                                             class="d-inline" data-swal-confirm data-swal-title="¿Corregir este pago?"
-                                            data-swal-text="{{ $esObligacionPago ? 'Reverso contable y reapertura de cuota (solo el último pago de esa obligación).' : 'Se registra un reverso en el libro.' }}"
+                                            data-swal-text="{{ $esTarjetaPago ? 'Reverso contable y reapertura del extracto o abono (solo el último pago de esa tarjeta).' : ($esPrestamoPago ? 'Reverso contable y reapertura de cuota (solo el último pago de esa obligación).' : 'Se registra un reverso en el libro.') }}"
                                             data-swal-icon="warning" data-swal-confirm-text="Corregir">
                                             @csrf
                                             <input type="hidden" name="motivo"
@@ -564,8 +571,14 @@
             const ref = document.getElementById('referencia');
             if (!tipo || !prestamoBox || !tarjetaBox || !terceroBox) return;
 
-            function aplicarMinimo(select) {
+            function montoVacio() {
+                if (!montoPago) return true;
+                return String(montoPago.value || '').replace(/[^\d]/g, '') === '';
+            }
+
+            function aplicarMinimo(select, forzar) {
                 if (!montoPago || !select || !select.value) return;
+                if (!forzar && !montoVacio()) return;
                 const opt = select.options[select.selectedIndex];
                 const minimo = opt && opt.dataset ? opt.dataset.minimo : '';
                 if (minimo !== undefined && minimo !== '') {
@@ -574,7 +587,7 @@
                 }
             }
 
-            function sync() {
+            function sync(desdeCambioTipo) {
                 const esPrestamo = tipo.value === 'prestamo';
                 const esTarjeta = tipo.value === 'tarjeta';
                 const esObligacion = esPrestamo || esTarjeta;
@@ -594,14 +607,15 @@
                     el.required = !esObligacion;
                     if (esObligacion) el.value = '';
                 });
-                if (esPrestamo) aplicarMinimo(prestamoSelect);
-                if (esTarjeta) aplicarMinimo(tarjetaSelect);
+                // Prefill solo si el monto está vacío (carga o al elegir tipo); el change del select fuerza.
+                if (esPrestamo) aplicarMinimo(prestamoSelect, false);
+                if (esTarjeta) aplicarMinimo(tarjetaSelect, false);
             }
 
-            if (prestamoSelect) prestamoSelect.addEventListener('change', function() { aplicarMinimo(prestamoSelect); });
-            if (tarjetaSelect) tarjetaSelect.addEventListener('change', function() { aplicarMinimo(tarjetaSelect); });
-            tipo.addEventListener('change', sync);
-            sync();
+            if (prestamoSelect) prestamoSelect.addEventListener('change', function() { aplicarMinimo(prestamoSelect, true); });
+            if (tarjetaSelect) tarjetaSelect.addEventListener('change', function() { aplicarMinimo(tarjetaSelect, true); });
+            tipo.addEventListener('change', function() { sync(true); });
+            sync(false);
         })();
     </script>
 @endpush

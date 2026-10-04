@@ -16,6 +16,7 @@
     $metaRetiroOpen = $oldRetiro ? (int) old('meta_ahorro_id') : 0;
 @endphp
 
+@include('layouts.partials.form-errors')
 @include('layouts.partials.form-errors', ['bag' => 'editar_meta'])
 @include('layouts.partials.form-errors', ['bag' => 'retiro'])
 
@@ -61,13 +62,20 @@
                 </div>
                 <div>
                     <label class="form-label" for="cuenta_liquida_id">Cuenta de referencia</label>
-                    <select id="cuenta_liquida_id" name="cuenta_liquida_id" class="form-select form-select-lg @error('cuenta_liquida_id', 'meta') is-invalid @enderror" required>
-                        <option value="">Selecciona cuenta operativa</option>
-                        @foreach($cuentasOperativas as $cuenta)
-                            <option value="{{ $cuenta->id }}" @selected($oldMeta && old('cuenta_liquida_id') == $cuenta->id)>{{ $cuenta->nombre }}</option>
-                        @endforeach
+                    <select id="cuenta_liquida_id" name="cuenta_liquida_id" class="form-select form-select-lg @error('cuenta_liquida_id', 'meta') is-invalid @enderror" required @disabled($cuentasOperativas->isEmpty())>
+                        @if($cuentasOperativas->isEmpty())
+                            <option value="">Sin cuentas operativas</option>
+                        @else
+                            <option value="">Selecciona cuenta operativa</option>
+                            @foreach($cuentasOperativas as $cuenta)
+                                <option value="{{ $cuenta->id }}" @selected($oldMeta && old('cuenta_liquida_id') == $cuenta->id)>{{ $cuenta->nombre }}</option>
+                            @endforeach
+                        @endif
                     </select>
                     <small class="text-secondary">Se crea un bolsillo dedicado; nunca se convierte en cuenta operativa.</small>
+                    @if($cuentasOperativas->isEmpty())
+                        <small class="text-danger d-block">Crea una <a href="{{ route('app.cuentas.create') }}">cuenta operativa</a> antes de abrir una meta.</small>
+                    @endif
                     @include('layouts.partials.field-error', ['name' => 'cuenta_liquida_id', 'bag' => 'meta'])
                 </div>
                 <div>
@@ -82,7 +90,7 @@
             </section>
 
             <div class="form-actions">
-                <button class="btn btn-primary btn-lg w-100" type="submit">Crear meta</button>
+                <button class="btn btn-primary btn-lg w-100" type="submit" @disabled($cuentasOperativas->isEmpty())>Crear meta</button>
             </div>
         </form>
     @else
@@ -240,25 +248,43 @@
                             @method('PUT')
                             <input type="hidden" name="idempotency_key" value="{{ $idempotencyKeyEditar }}-{{ $meta->id }}">
                             <input type="hidden" name="_meta_edit" value="{{ $meta->id }}">
+                            @if($esteEditar)
+                                @include('layouts.partials.form-errors', ['bag' => 'editar_meta'])
+                            @endif
                             <div class="row g-2">
                                 <div class="col-12">
-                                    <input name="nombre" value="{{ $esteEditar ? old('nombre', $meta->nombre) : $meta->nombre }}" class="form-control form-control-sm" placeholder="Nombre">
+                                    <input name="nombre" value="{{ $esteEditar ? old('nombre', $meta->nombre) : $meta->nombre }}" class="form-control form-control-sm {{ $esteEditar && $errors->editar_meta->has('nombre') ? 'is-invalid' : '' }}" placeholder="Nombre" required>
+                                    @if($esteEditar)
+                                        @include('layouts.partials.field-error', ['name' => 'nombre', 'bag' => 'editar_meta'])
+                                    @endif
                                 </div>
                                 <div class="col-6">
-                                    <input name="objetivo" data-miles inputmode="decimal" value="{{ $esteEditar ? old('objetivo') : ($meta->objetivo_centavos / 100) }}" class="form-control form-control-sm" required>
+                                    <input name="objetivo" data-miles inputmode="decimal" value="{{ $esteEditar ? old('objetivo') : ($meta->objetivo_centavos / 100) }}" class="form-control form-control-sm {{ $esteEditar && $errors->editar_meta->has('objetivo') ? 'is-invalid' : '' }}" required>
+                                    @if($esteEditar)
+                                        @include('layouts.partials.field-error', ['name' => 'objetivo', 'bag' => 'editar_meta'])
+                                    @endif
                                 </div>
                                 <div class="col-6">
-                                    <input name="fecha_objetivo" type="date" value="{{ $esteEditar ? old('fecha_objetivo', $meta->fecha_objetivo?->toDateString()) : $meta->fecha_objetivo?->toDateString() }}" class="form-control form-control-sm">
+                                    <input name="fecha_objetivo" type="date" value="{{ $esteEditar ? old('fecha_objetivo', $meta->fecha_objetivo?->toDateString()) : $meta->fecha_objetivo?->toDateString() }}" class="form-control form-control-sm {{ $esteEditar && $errors->editar_meta->has('fecha_objetivo') ? 'is-invalid' : '' }}">
+                                    @if($esteEditar)
+                                        @include('layouts.partials.field-error', ['name' => 'fecha_objetivo', 'bag' => 'editar_meta'])
+                                    @endif
                                 </div>
                                 <div class="col-6">
-                                    <input name="aporte_mensual" data-miles inputmode="decimal" value="{{ $esteEditar ? old('aporte_mensual', $meta->aporte_mensual_centavos / 100) : ($meta->aporte_mensual_centavos / 100) }}" class="form-control form-control-sm" placeholder="Plan mensual">
+                                    <input name="aporte_mensual" data-miles inputmode="decimal" value="{{ $esteEditar ? old('aporte_mensual', $meta->aporte_mensual_centavos / 100) : ($meta->aporte_mensual_centavos / 100) }}" class="form-control form-control-sm {{ $esteEditar && $errors->editar_meta->has('aporte_mensual') ? 'is-invalid' : '' }}" placeholder="Plan mensual">
+                                    @if($esteEditar)
+                                        @include('layouts.partials.field-error', ['name' => 'aporte_mensual', 'bag' => 'editar_meta'])
+                                    @endif
                                 </div>
                                 <div class="col-6">
-                                    <select name="prioridad" class="form-select form-select-sm">
+                                    <select name="prioridad" class="form-select form-select-sm {{ $esteEditar && $errors->editar_meta->has('prioridad') ? 'is-invalid' : '' }}">
                                         @foreach(['alta'=>'Alta','media'=>'Media','baja'=>'Baja'] as $v=>$t)
                                             <option value="{{ $v }}" @selected(($esteEditar ? old('prioridad', $meta->prioridad) : $meta->prioridad) === $v)>{{ $t }}</option>
                                         @endforeach
                                     </select>
+                                    @if($esteEditar)
+                                        @include('layouts.partials.field-error', ['name' => 'prioridad', 'bag' => 'editar_meta'])
+                                    @endif
                                 </div>
                                 <div class="col-12">
                                     <button class="card-btn card-btn--primary" type="submit">Guardar cambios</button>
@@ -303,8 +329,8 @@
                                         @if($corregido) · <span class="text-danger">Corregido</span>@endif
                                     </small>
                                 </div>
-                                <strong class="account-card__amount {{ $corregido ? 'text-secondary' : '' }}">
-                                    @if($corregido)<s>@endif @cop($mov->monto_centavos) @if($corregido)</s>@endif
+                                <strong class="account-card__amount {{ $corregido ? 'text-secondary' : ($esAporte ? 'text-danger' : 'text-success') }}">
+                                    @if($corregido)<s>@endif{{ $esAporte ? '-' : '+' }}@cop($mov->monto_centavos)@if($corregido)</s>@endif
                                 </strong>
                             </div>
                             @if($puedeCorregir)

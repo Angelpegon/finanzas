@@ -9,6 +9,8 @@
     $prev = $periodo->copy()->subMonth();
     $next = $periodo->copy()->addMonth();
     $errCat = $errors->categoria;
+    $catEditId = $errCat->any() ? (int) old('_cat_edit') : 0;
+    $errCatCreate = $errCat->any() && $catEditId === 0;
 @endphp
 
 @include('layouts.partials.form-errors')
@@ -66,7 +68,9 @@
             @include('layouts.partials.field-error', ['name' => 'lineas'])
             <div class="budget-lines">
                 @foreach($categorias as $categoria)
-                    @php($lineaExistente = $presupuesto?->lineas->firstWhere('categoria_id', $categoria->id))
+                    @php
+                        $lineaExistente = $presupuesto?->lineas->firstWhere('categoria_id', $categoria->id);
+                    @endphp
                     <label class="budget-line">
                         <span class="budget-line__name">{{ $categoria->nombre }}</span>
                         <input name="lineas[]" type="text" inputmode="decimal" data-miles class="form-control budget-line__amount @error('lineas.'.$loop->index) is-invalid @enderror" value="{{ old('lineas.'.$loop->index, $lineaExistente ? \App\Support\Dinero::centavosAPesos($lineaExistente->tope_centavos) : '') }}" placeholder="$ 0" autocomplete="off">
@@ -98,16 +102,20 @@
             <div class="row g-2 align-items-end">
                 <div class="col-md-5">
                     <label class="form-label" for="cat_nombre">Nueva categoría</label>
-                    <input id="cat_nombre" name="nombre" value="{{ $errCat->any() ? old('nombre') : '' }}" class="form-control form-control-lg @error('nombre', 'categoria') is-invalid @enderror" placeholder="Ej. Mascotas" required>
-                    @include('layouts.partials.field-error', ['name' => 'nombre', 'bag' => 'categoria'])
+                    <input id="cat_nombre" name="nombre" value="{{ $errCatCreate ? old('nombre') : '' }}" class="form-control form-control-lg {{ $errCatCreate && $errCat->has('nombre') ? 'is-invalid' : '' }}" placeholder="Ej. Mascotas" required>
+                    @if($errCatCreate)
+                        @include('layouts.partials.field-error', ['name' => 'nombre', 'bag' => 'categoria'])
+                    @endif
                 </div>
                 <div class="col-md-4">
                     <label class="form-label" for="cat_tipo">Tipo</label>
-                    <select id="cat_tipo" name="tipo" class="form-select form-select-lg @error('tipo', 'categoria') is-invalid @enderror" required>
-                        <option value="gasto" @selected(($errCat->any() ? old('tipo', 'gasto') : 'gasto') === 'gasto')>Gasto</option>
-                        <option value="ingreso" @selected(($errCat->any() ? old('tipo') : '') === 'ingreso')>Ingreso</option>
+                    <select id="cat_tipo" name="tipo" class="form-select form-select-lg {{ $errCatCreate && $errCat->has('tipo') ? 'is-invalid' : '' }}" required>
+                        <option value="gasto" @selected(($errCatCreate ? old('tipo', 'gasto') : 'gasto') === 'gasto')>Gasto</option>
+                        <option value="ingreso" @selected(($errCatCreate ? old('tipo') : '') === 'ingreso')>Ingreso</option>
                     </select>
-                    @include('layouts.partials.field-error', ['name' => 'tipo', 'bag' => 'categoria'])
+                    @if($errCatCreate)
+                        @include('layouts.partials.field-error', ['name' => 'tipo', 'bag' => 'categoria'])
+                    @endif
                 </div>
                 <div class="col-md-3">
                     <button class="btn btn-primary btn-lg w-100" type="submit">Agregar</button>
@@ -118,16 +126,21 @@
         <div class="card-stack">
             @foreach($categorias as $categoria)
                 <article class="account-card">
+                    @php $esteCatEdit = $catEditId === (int) $categoria->id; @endphp
                     <form method="POST" action="{{ route('app.categorias.update', $categoria) }}" class="account-card__main w-100">
                         @csrf
                         @method('PUT')
                         <input type="hidden" name="anio" value="{{ $anio }}">
                         <input type="hidden" name="mes" value="{{ $mes }}">
+                        <input type="hidden" name="_cat_edit" value="{{ $categoria->id }}">
                         <div class="account-card__body w-100">
                             <div class="row g-2 align-items-center">
                                 <div class="col-md-8">
                                     <label class="form-label visually-hidden" for="edit_cat_{{ $categoria->id }}">Nombre</label>
-                                    <input id="edit_cat_{{ $categoria->id }}" name="nombre" value="{{ $categoria->nombre }}" class="form-control" required>
+                                    <input id="edit_cat_{{ $categoria->id }}" name="nombre" value="{{ $esteCatEdit ? old('nombre', $categoria->nombre) : $categoria->nombre }}" class="form-control {{ $esteCatEdit && $errCat->has('nombre') ? 'is-invalid' : '' }}" required>
+                                    @if($esteCatEdit)
+                                        @include('layouts.partials.field-error', ['name' => 'nombre', 'bag' => 'categoria'])
+                                    @endif
                                 </div>
                                 <div class="col-md-4 d-flex gap-2 justify-content-md-end">
                                     <span class="small text-secondary align-self-center">Gasto</span>
@@ -144,15 +157,20 @@
             <div class="card-stack">
                 @foreach($categoriasIngreso as $categoria)
                     <article class="account-card">
+                        @php $esteCatEdit = $catEditId === (int) $categoria->id; @endphp
                         <form method="POST" action="{{ route('app.categorias.update', $categoria) }}" class="account-card__main w-100">
                             @csrf
                             @method('PUT')
                             <input type="hidden" name="anio" value="{{ $anio }}">
                             <input type="hidden" name="mes" value="{{ $mes }}">
+                            <input type="hidden" name="_cat_edit" value="{{ $categoria->id }}">
                             <div class="account-card__body w-100">
                                 <div class="row g-2 align-items-center">
                                     <div class="col-md-8">
-                                        <input name="nombre" value="{{ $categoria->nombre }}" class="form-control" required>
+                                        <input name="nombre" value="{{ $esteCatEdit ? old('nombre', $categoria->nombre) : $categoria->nombre }}" class="form-control {{ $esteCatEdit && $errCat->has('nombre') ? 'is-invalid' : '' }}" required>
+                                        @if($esteCatEdit)
+                                            @include('layouts.partials.field-error', ['name' => 'nombre', 'bag' => 'categoria'])
+                                        @endif
                                     </div>
                                     <div class="col-md-4 d-flex gap-2 justify-content-md-end">
                                         <span class="small text-secondary align-self-center">Ingreso</span>

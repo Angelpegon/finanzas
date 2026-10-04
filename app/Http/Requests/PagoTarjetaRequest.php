@@ -53,9 +53,9 @@ class PagoTarjetaRequest extends FormRequest
     protected function mensajesExtra(): array
     {
         return [
-            'cuenta_liquida_id.required' => 'Elige la cuenta con la que pagas el extracto.',
+            'cuenta_liquida_id.required' => 'Elige la cuenta con la que pagas la tarjeta.',
             'idempotency_key.required' => 'Recarga la página e intenta el pago de nuevo.',
-            'monto.gt' => 'El monto debe ser mayor que cero. El mínimo evita la mora; el total evita la rotación.',
+            'monto.gt' => 'El monto debe ser mayor que cero. El tope es el saldo total de la tarjeta.',
         ];
     }
 }

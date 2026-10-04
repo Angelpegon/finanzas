@@ -41,11 +41,13 @@ de crear hechos o asientos; las vistas solo muestran el resultado.
 13. Los pagos de préstamos y de tarjetas pueden iniciarse desde Movimientos
     (también desde Deudas / Tarjetas); el dominio siempre usa `PrestamoService`
     o `TarjetaService`. En préstamo el mínimo es la próxima cuota y el exceso
-    es abono a capital. En tarjeta se paga el extracto abierto: mínimo para
-    no entrar en mora, total para no rotar. Los gastos de consumo diario se
-    registran en Gastos, no en Movimientos. Un envío a un tercero no es
-    transferencia: es un pago genérico (`deuda_personal` / `otra_obligacion`)
-    que reduce liquidez y reconoce gasto.
+    es abono a capital. En tarjeta se puede pagar en cualquier momento hasta
+    el saldo del pasivo: si hay extracto abierto se cubre primero (mínimo
+    evita mora; total evita rotación); el exceso es abono extraordinario a
+    capital. Los gastos de consumo diario se registran en Gastos, no en
+    Movimientos. Un envío a un tercero no es transferencia: es un pago
+    genérico (`deuda_personal` / `otra_obligacion`) que reduce liquidez y
+    reconoce gasto.
 14. Un pago genérico exige referencia única por usuario (`unique` en
     `usuario_id + referencia`) y cuenta operativa. La corrección de un pago
     genérico o de una transferencia entre cuentas propias es reverso contable
@@ -59,15 +61,20 @@ de crear hechos o asientos; las vistas solo muestran el resultado.
     en lineal o solo interés se recalcula el mismo número de cuotas pendientes
     con el saldo restante. El cronograma futuro se ajusta (no es UPDATE de
     asientos); el pago guarda un snapshot para permitir corrección.
-    En tarjeta el pago aplica al extracto abierto, en cascada: mora, interés
-    rotativo, interés de diferido, cargos, capital del diferido exigido este
-    ciclo, capital rotativo. Lo que supere el mínimo reduce capital rotativo.
-    Un monto mayor al saldo del extracto se rechaza: no se adelantan cuotas
-    futuras del diferido ni se condona su interés. El pago guarda snapshot
-    de `abonado_centavos` de esas cuotas. La corrección solo restaura ese
-    snapshot y revierte el asiento del pago; no revierte la causación del
-    corte y solo aplica al último pago de la tarjeta, mientras no exista un
-    corte posterior.
+    En tarjeta el tope es el saldo del pasivo. Si hay extracto abierto con
+    restante, el pago aplica primero en cascada: mora, interés rotativo,
+    interés de diferido, cargos, capital del diferido exigido este ciclo,
+    capital rotativo. Lo que supere el mínimo del extracto (sin pasarse del
+    total del extracto) reduce capital rotativo. El exceso sobre el extracto
+    —o todo el pago si aún no hay extracto— es abono extraordinario: primero
+    capital rotativo no cubierto, luego capital de cuotas diferidas por
+    fecha de vencimiento (adelanta las próximas). El interés programado de
+    esas cuotas adelantadas se condona (no estaba causado en `5200` si no
+    habían entrado al extracto). El pago guarda snapshot de `abonado`,
+    `pagada` e `interes_centavos` de las cuotas tocadas. La corrección
+    restaura ese snapshot y revierte el asiento del pago; no revierte la
+    causación del corte y solo aplica al último pago de la tarjeta, mientras
+    no exista un corte posterior.
 
 ## Deudas y financiación
 
@@ -87,10 +94,22 @@ de crear hechos o asientos; las vistas solo muestran el resultado.
     de compras. El mínimo = 100% de intereses, mora, cargos y capital exigido
     (cuota del diferido y del avance a cuotas de este ciclo, más el avance a
     una cuota) + `porcentaje_abono_capital_minimo` del capital rotativo
-    (default 5). El pago total suma el capital rotativo completo, sin el
-    tope porcentual, y deja fuera el saldo diferido de meses futuros.
+    (default 5). El pago total del extracto suma el capital rotativo
+    completo, sin el tope porcentual, y deja fuera el saldo diferido de
+    meses futuros; ese diferido sí se puede adelantar con un abono
+    extraordinario (capital; interés programado condonado).
 19. Una compra o avance con tarjeta no puede superar el cupo disponible
     (cupo − saldo del pasivo en el libro), con bloqueo de fila al registrar.
+    Se puede editar nombre, entidad, cupo, días de corte/pago, tasas, % del
+    mínimo y cuota de manejo. El cupo no puede quedar por debajo del pasivo
+    actual. Al cambiar día de corte o de pago: se recalcula la fecha límite
+    del extracto abierto (sin mover su fecha de corte ni montos) y los
+    vencimientos de cuotas aún no facturadas (`ciclo_facturacion_id` null);
+    extractos cerrados y cuotas ya cargadas a un ciclo no se tocan. Cambiar
+    tasas solo afecta compras/avances nuevos y causaciones de cortes futuros.
+    Una compra o avance queda liquidada cuando todas sus cuotas están `pagada`
+    (el cupo se libera al bajar el pasivo con cada pago); no se anula después
+    de eso.
 20. Una cuota de préstamo pagada no puede pagarse nuevamente; el pago se
     vincula con `pagos.cuota_prestamo_id`. El pago de tarjeta se vincula al
     extracto (`pagos.ciclo_facturacion_id`), no a una cuota suelta.
