@@ -19,7 +19,8 @@ class RegisterRequest extends FormRequest
     {
         return [
             'nombre' => ['required', 'string', 'max:120'],
-            'email' => ['required', 'string', 'email', 'max:255', 'unique:users,email'],
+            // not_regex: la regla `email` de Laravel 10 acepta CRLF (advisory sin parche en 10.x).
+            'email' => ['required', 'string', 'email', 'not_regex:/[\r\n]/', 'max:255', 'unique:users,email'],
             'password' => ['required', 'confirmed', Password::min(8)],
         ];
     }
@@ -29,6 +30,7 @@ class RegisterRequest extends FormRequest
         return [
             'nombre.required' => 'Indica tu nombre.',
             'email.required' => 'Indica tu correo electrónico.',
+            'email.not_regex' => 'El correo no puede contener saltos de línea.',
             'password.required' => 'Elige una contraseña.',
         ];
     }

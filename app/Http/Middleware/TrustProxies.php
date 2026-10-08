@@ -10,7 +10,8 @@ class TrustProxies extends Middleware
     /**
      * Plesk (nginx → Apache/PHP-FPM) termina TLS delante de la app.
      * Por defecto '*'. En producción conviene TRUSTED_PROXIES con IPs del proxy
-     * (p. ej. 127.0.0.1,::1 o la red interna del nodo).
+     * (p. ej. 127.0.0.1,::1 o la red interna del nodo). Se lee vía config()
+     * porque env() devuelve null con config:cache.
      *
      * @var array<int, string>|string|null
      */
@@ -29,15 +30,23 @@ class TrustProxies extends Middleware
         Request::HEADER_X_FORWARDED_PREFIX |
         Request::HEADER_X_FORWARDED_AWS_ELB;
 
-    public function __construct()
+    public function handle(Request $request, \Closure $next)
     {
-        $raw = trim((string) env('TRUSTED_PROXIES', '*'));
-        if ($raw === '' || $raw === '*') {
-            $this->proxies = '*';
+        $this->proxies = self::proxiesDesdeConfig(config('app.trusted_proxies'));
 
-            return;
+        return parent::handle($request, $next);
+    }
+
+    /**
+     * @return array<int, string>|string
+     */
+    public static function proxiesDesdeConfig(mixed $raw): array|string
+    {
+        $raw = trim((string) $raw);
+        if ($raw === '' || $raw === '*') {
+            return '*';
         }
 
-        $this->proxies = array_values(array_filter(array_map('trim', explode(',', $raw))));
+        return array_values(array_filter(array_map('trim', explode(',', $raw))));
     }
 }

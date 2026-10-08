@@ -39,6 +39,19 @@ class AgregadosLibro
         return (int) self::excluirOrigenesRevertidos($q, HechoTesoreria::class, $usuarioId)->sum('monto_centavos');
     }
 
+    public const TIPOS_PAGO_DEUDA = ['prestamo', 'credito', 'tarjeta'];
+
+    /** Pagos a préstamos y tarjetas del periodo, sin los corregidos (reverso). */
+    public static function pagosDeudaReales(int $usuarioId, Carbon $inicio, Carbon $fin): int
+    {
+        $q = Pago::withoutGlobalScopes()
+            ->where('usuario_id', $usuarioId)
+            ->whereIn('tipo', self::TIPOS_PAGO_DEUDA)
+            ->whereBetween('fecha', [$inicio->toDateString(), $fin->toDateString()]);
+
+        return (int) self::excluirOrigenesRevertidos($q, Pago::class, $usuarioId)->sum('monto_centavos');
+    }
+
     public static function gastosReales(int $usuarioId, Carbon $inicio, Carbon $fin, ?int $categoriaId = null): int
     {
         $mapa = self::gastosRealesPorCategoria(

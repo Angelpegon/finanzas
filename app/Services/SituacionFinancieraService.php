@@ -8,7 +8,6 @@ use App\Models\CuentaLiquida;
 use App\Models\CicloFacturacion;
 use App\Models\CuotaPrestamo;
 use App\Models\HechoTesoreria;
-use App\Models\Pago;
 use App\Models\Prestamo;
 use App\Models\Presupuesto;
 use App\Models\TarjetaCredito;
@@ -79,8 +78,7 @@ class SituacionFinancieraService
         $proyeccion = $this->proyeccion->horizonteMensual($usuarioId, $fecha);
         $ingresosMes = \App\Support\AgregadosLibro::ingresosReales($usuarioId, $inicio, $fin);
         $gastosMes = \App\Support\AgregadosLibro::gastosReales($usuarioId, $inicio, $fin);
-        $pagosDeudaMes = (int) Pago::withoutGlobalScopes()->where('usuario_id', $usuarioId)
-            ->whereIn('tipo', ['prestamo', 'credito', 'tarjeta'])->whereBetween('fecha', [$inicio, $fin])->sum('monto_centavos');
+        $pagosDeudaMes = \App\Support\AgregadosLibro::pagosDeudaReales($usuarioId, $inicio, $fin);
 
         // Siempre anclado a hoy: el bloque UI dice "Próximos", no "del mes visto".
         $pagosProximos = $this->proximosVencimientos($usuarioId, now());
@@ -188,8 +186,7 @@ class SituacionFinancieraService
         $proyeccion = $this->proyeccion->horizonteMensual($usuarioId, $fecha);
         $ingresosMes = \App\Support\AgregadosLibro::ingresosReales($usuarioId, $inicio, $fin);
         $gastosMes = \App\Support\AgregadosLibro::gastosReales($usuarioId, $inicio, $fin);
-        $pagosDeudaMes = (int) Pago::withoutGlobalScopes()->where('usuario_id', $usuarioId)
-            ->whereIn('tipo', ['prestamo', 'credito', 'tarjeta'])->whereBetween('fecha', [$inicio, $fin])->sum('monto_centavos');
+        $pagosDeudaMes = \App\Support\AgregadosLibro::pagosDeudaReales($usuarioId, $inicio, $fin);
         $flujo = $ingresosMes - $gastosMes - $pagosDeudaMes;
         $gastosProyectadosPendientes = max(0, $proyeccion['gastos'] - $gastosMes);
         $dineroComprometido = $proyeccion['cuotas'] + $proyeccion['metas'];
@@ -226,8 +223,7 @@ class SituacionFinancieraService
         $finAnt = $anterior->copy()->endOfMonth();
         $ingresosAnt = \App\Support\AgregadosLibro::ingresosReales($usuarioId, $inicioAnt, $finAnt);
         $gastosAnt = \App\Support\AgregadosLibro::gastosReales($usuarioId, $inicioAnt, $finAnt);
-        $pagosDeudaAnt = (int) Pago::withoutGlobalScopes()->where('usuario_id', $usuarioId)
-            ->whereIn('tipo', ['prestamo', 'credito', 'tarjeta'])->whereBetween('fecha', [$inicioAnt, $finAnt])->sum('monto_centavos');
+        $pagosDeudaAnt = \App\Support\AgregadosLibro::pagosDeudaReales($usuarioId, $inicioAnt, $finAnt);
         $disponibleAnt = $this->disponibleEn($usuarioId, $anterior);
 
         $cuentas = CuentaLiquida::withoutGlobalScopes()

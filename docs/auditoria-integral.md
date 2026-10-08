@@ -1,5 +1,11 @@
 # Auditoría integral — Finanzas (post-Plesk)
 
+> **Instantánea histórica (2026-09-06).** Las cifras (51 tests) y estados de
+> este informe ya no reflejan el repo. El backlog vigente está en
+> [`estado-proyecto.md`](estado-proyecto.md). Nota: la corrección S1
+> original (`TRUSTED_PROXIES` vía `env()`) no era efectiva con `config:cache`;
+> se rehízo el 2026-10-08.
+
 **Fecha:** 2026-09-06  
 **Alcance:** código del repo + PHPUnit + revisión estática + pruebas en vivo en `https://ingeer.co/finanzas`  
 **Regla de esta fase:** no se modificó código de la aplicación (solo este informe).  

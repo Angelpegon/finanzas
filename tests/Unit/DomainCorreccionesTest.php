@@ -210,6 +210,41 @@ class DomainCorreccionesTest extends TestCase
         Carbon::setTestNow();
     }
 
+    public function test_flujo_de_caja_excluye_pago_de_prestamo_corregido_y_cuenta_el_dia_uno(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-04-20', 'America/Bogota'));
+        $user = $this->usuarioConCatalogo();
+        $cuenta = CuentaLiquida::withoutGlobalScopes()->where('usuario_id', $user->id)->firstOrFail();
+        app(TesoreriaService::class)->registrar(
+            $user->id, TipoHechoTesoreria::Apertura, '2026-03-01', 5_000_000_00, $cuenta->id
+        );
+        $prestamo = app(PrestamoService::class)->crear(
+            $user->id, 'Libre', 200_000_00, 0.0, 2, '2026-03-10', 15, $cuenta->id
+        );
+        $cuota = $prestamo->cuotas()->orderBy('numero')->firstOrFail();
+        $pago = app(PrestamoService::class)->registrarPago(
+            $user->id, $prestamo->id, (int) $cuota->total_centavos, '2026-04-01'
+        );
+
+        $situacion = app(\App\Services\SituacionFinancieraService::class);
+        $antes = $situacion->responder($user->id, now());
+        $this->assertSame((int) $cuota->total_centavos, $antes['pagos_deuda_mes_centavos']);
+
+        app(PrestamoService::class)->corregirPago($user->id, (int) $pago->id, '2026-04-02', 'Pago duplicado');
+
+        $despues = $situacion->responder($user->id, now());
+        $this->assertSame(0, $despues['pagos_deuda_mes_centavos']);
+        $this->assertSame(
+            $antes['flujo_caja_centavos'] + (int) $cuota->total_centavos,
+            $despues['flujo_caja_centavos']
+        );
+        $this->assertSame(0, AgregadosLibro::pagosDeudaReales(
+            $user->id, Carbon::parse('2026-04-01'), Carbon::parse('2026-04-30')->endOfDay()
+        ));
+
+        Carbon::setTestNow();
+    }
+
     public function test_calendario_recurrencia_unico_solo_mes_creacion_y_umbral_monto(): void
     {
         Carbon::setTestNow(Carbon::parse('2026-03-01', 'America/Bogota'));

@@ -60,6 +60,9 @@ return [
 
     'force_https' => (bool) env('FORCE_HTTPS', false),
 
+    // '*' o lista separada por comas (p. ej. 127.0.0.1,::1). Lo lee TrustProxies.
+    'trusted_proxies' => env('TRUSTED_PROXIES', '*'),
+
     /*
     |--------------------------------------------------------------------------
     | Application Timezone

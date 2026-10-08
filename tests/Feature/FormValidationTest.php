@@ -186,6 +186,22 @@ class FormValidationTest extends TestCase
         $this->assertDoesNotMatchRegularExpression('/\bthe\b|\bconfirmation\b/i', $mensaje);
     }
 
+    public function test_registro_rechaza_email_con_crlf_que_la_regla_email_acepta(): void
+    {
+        $email = "\"ana\r\n x\"@example.com";
+
+        $response = $this->from(route('register'))->post(route('auth.register'), [
+            'nombre' => 'Ana',
+            'email' => $email,
+            'password' => 'secreto123',
+            'password_confirmation' => 'secreto123',
+        ]);
+
+        $response->assertSessionHasErrors('email');
+        $this->assertSame('El correo no puede contener saltos de línea.', session('errors')->first('email'));
+        $this->assertDatabaseMissing('users', ['email' => $email]);
+    }
+
     public function test_errores_en_vista_no_duplican_lista_ni_rompen_select(): void
     {
         $usuario = $this->usuarioConCatalogo();

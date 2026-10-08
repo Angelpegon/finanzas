@@ -64,8 +64,6 @@ El path de `APP_URL` fija la raíz de links/assets/sesión/PWA. El middleware `S
 
 > Preferible a medio plazo: subdominio con Document Root = `…/finanzas/public`. El prefijo funciona, pero es más frágil (rewrite, nginx, cookies, PWA).
 
-Tras cambiar `.env`: `php artisan config:cache`.
-
 ## Dos flujos de subida
 
 ### A) Con SSH (preferido)
@@ -151,7 +149,7 @@ El tarball incluye `vendor` y `public/build`; **no** incluye `.env`.
 
 ## Código ya preparado en el repo
 
-- `TrustProxies`: lee `TRUSTED_PROXIES` (default `*`; restringe a IPs del proxy cuando puedas).
+- `TrustProxies`: lee `config('app.trusted_proxies')` ← `TRUSTED_PROXIES` (default `*`; restringe a IPs del proxy cuando puedas). Tras cambiarlo, `config:cache`.
 - `SecurityHeaders`: `nosniff`, `Referrer-Policy`, HSTS si `FORCE_HTTPS`/production.
 - `FORCE_HTTPS` / `APP_ENV=production` → `URL::forceScheme('https')`.
 - `.htaccess` raíz: fallback si el docroot no es `/public`.
