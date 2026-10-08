@@ -30,10 +30,11 @@ de crear hechos o asientos; las vistas solo muestran el resultado.
 ## Proyecciones y pagos
 
 11. Los movimientos proyectados no crean asientos ni alteran saldos reales.
-    Excepción: consultar el calendario, la proyección o la situación cierra
-    los cortes de tarjeta ya vencidos (`ExtractoTarjetaService`). Ese cierre
-    sí causa interés, mora y cuota de manejo en `5200` una sola vez. No
-    persiste cortes futuros.
+    Excepción: cualquier página autenticada cierra los cortes de tarjeta ya
+    vencidos (`ExtractoTarjetaService::cerrarExtractosVencidos`, invocado
+    desde `resumenShell` del layout, Situación, Alertas y los índices de
+    Deudas, Tarjetas y Movimientos). Ese cierre sí causa interés, mora y
+    cuota de manejo en `5200` una sola vez. No persiste cortes futuros.
 12. Un pago de tarjeta reduce el pasivo y la liquidez por el monto pagado.
     El interés, la mora y la cuota de manejo se causan al corte (débito
     `5200`, crédito pasivo de la tarjeta), no en el pago. La compra ya

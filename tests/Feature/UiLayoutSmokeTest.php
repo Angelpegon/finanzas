@@ -99,14 +99,13 @@ class UiLayoutSmokeTest extends TestCase
         $tarjetas->assertSee('page-toolbar', false);
     }
 
-    public function test_css_compilado_incluye_utilidades_responsive_nuevas(): void
+    /**
+     * Lee la fuente y no public/build: el build está en .gitignore y en local
+     * suele estar desactualizado (npm run dev no lo regenera).
+     */
+    public function test_css_fuente_incluye_utilidades_responsive(): void
     {
-        $manifestPath = public_path('build/manifest.json');
-        $this->assertFileExists($manifestPath);
-        $manifest = json_decode((string) file_get_contents($manifestPath), true);
-        $cssRel = $manifest['resources/css/app.css']['file'] ?? null;
-        $this->assertNotEmpty($cssRel);
-        $css = (string) file_get_contents(public_path('build/'.$cssRel));
+        $css = (string) file_get_contents(resource_path('css/app.css'));
 
         foreach ([
             '.auth-actions',
@@ -115,12 +114,14 @@ class UiLayoutSmokeTest extends TestCase
             '.capture-flow',
             '.flow-tabs',
             '.list-block',
-            '.auth-stage{display:none',
         ] as $needle) {
-            $this->assertStringContainsString($needle, $css, "Falta {$needle} en CSS build");
+            $this->assertStringContainsString($needle, $css, "Falta {$needle} en resources/css/app.css");
         }
 
-        $this->assertMatchesRegularExpression('/@media \\(min-width: *992px\\)/', $css);
-        $this->assertStringContainsString('.auth-stage{display:flex', $css);
+        $this->assertMatchesRegularExpression('/\.auth-stage\s*\{\s*display:\s*none/', $css);
+        $this->assertMatchesRegularExpression(
+            '/@media \(min-width:\s*992px\)\s*\{[^@]*\.auth-stage\s*\{\s*display:\s*flex/s',
+            $css
+        );
     }
 }

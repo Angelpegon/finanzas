@@ -1,32 +1,39 @@
-/.phpunit.cache
-/.phpunit.result.cache
-.phpunit.result.cache
+# Dependencias y builds
 /node_modules
+/vendor
 /public/build
 /public/hot
 /public/storage
-/storage/*.key
-/vendor
+
+# Entorno y secretos
 .env
 .env.backup
 .env.production
-Homestead.json
-Homestead.yaml
+/storage/*.key
 auth.json
-npm-debug.log
-yarn-error.log
+
+# Tests
+/.phpunit.cache
+.phpunit.result.cache
+
+# Editores / SO
 /.fleet
 /.idea
 /.vscode
-/graphify-out
 .DS_Store
 **/.DS_Store
+Homestead.json
+Homestead.yaml
+npm-debug.log
+yarn-error.log
+/graphify-out
+
+# Artefactos de release
 *.tar.gz
 *.zip
-finanzas-release.tar.gz
-/public/diag-*.php
+
+# Diagnóstico temporal: nunca en Document Root ni en el repo
 /public/diag*.php
 /public/perf*.php
 /public/test.php
 /test.md
-/Archivo*.zip

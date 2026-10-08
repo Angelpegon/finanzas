@@ -15,8 +15,14 @@ todos:
     content: Presupuestos, metas de ahorro (aportes al libro), recurrencias y proyección de flujo
     status: done
   - id: situation-ui
-    content: Auth multi-usuario, dashboard, pantallas Blade de núcleo; importación CSV pendiente
-    status: in_progress
+    content: Auth multi-usuario, dashboard, pantallas Blade de núcleo
+    status: done
+  - id: import-csv
+    content: Importación CSV/Excel (tabla importaciones creada; sin servicio ni UI)
+    status: pending
+  - id: card-statement
+    content: Extracto de tarjeta con gracia, rotación, mora y cargos (ExtractoTarjetaService)
+    status: done
   - id: qa-security
     content: PHPUnit de dominio + aislamiento; auditoría SeguridadService y policies
     status: done
@@ -27,6 +33,11 @@ isProject: false
 ---
 
 # Personal Finance Manager (`finanzas`)
+
+> **Plan original (septiembre 2026).** Las rutas `/Users/angelpenaloza/...` son
+> de la máquina donde se creó. Desviaciones respecto a lo implementado (revolving
+> de tarjeta hecho, CSV sin hacer, JS vía Vite en `resources/js`) y backlog
+> vigente: [`docs/estado-proyecto.md`](../../docs/estado-proyecto.md).
 
 ## Decisiones senior (amplían el plan original)
 

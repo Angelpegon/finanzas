@@ -1,0 +1,42 @@
+name: tests
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring, bcmath, pdo_sqlite
+          coverage: none
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Composer install
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: npm ci + build
+        run: |
+          npm ci
+          npm run build
+
+      - name: Tests JS
+        run: npm test
+
+      - name: PHPUnit
+        run: php vendor/bin/phpunit
+
+      # No bloquea mientras haya advisories abiertos en dependencias (ver docs/estado-proyecto.md).
+      - name: Composer audit
+        continue-on-error: true
+        run: composer audit
